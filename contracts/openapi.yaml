@@ -1,0 +1,621 @@
+openapi: 3.1.0
+info:
+  title: Suilian AI Coach API
+  version: 0.2.0
+  description: >-
+    Lightweight AI gateway. It does not store complete workout history; clients send
+    a minimal structured planning context and persist returned plans locally.
+servers:
+  - url: https://api.example.com
+paths:
+  /healthz:
+    get:
+      operationId: healthz
+      responses:
+        '200':
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    const: ok
+  /v1/installations:
+    post:
+      operationId: createInstallation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateInstallationRequest'
+      responses:
+        '201':
+          description: Installation created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateInstallationResponse'
+        '400':
+          $ref: '#/components/responses/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/ErrorResponse'
+  /v1/coach/plans:
+    post:
+      operationId: generateWorkoutPlan
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GeneratePlanRequest'
+      responses:
+        '200':
+          description: Validated workout plan or stop guidance
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneratePlanResponse'
+        '400':
+          $ref: '#/components/responses/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/ErrorResponse'
+        '422':
+          $ref: '#/components/responses/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/ErrorResponse'
+        '503':
+          $ref: '#/components/responses/ErrorResponse'
+  /v1/coach/adjustments:
+    post:
+      operationId: adjustWorkoutPlan
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdjustPlanRequest'
+      responses:
+        '200':
+          description: Adjusted and validated workout plan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkoutPlanEnvelope'
+        '400':
+          $ref: '#/components/responses/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/ErrorResponse'
+        '422':
+          $ref: '#/components/responses/ErrorResponse'
+        '503':
+          $ref: '#/components/responses/ErrorResponse'
+  /v1/coach/summaries:
+    post:
+      operationId: createWorkoutSummary
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSummaryRequest'
+      responses:
+        '200':
+          description: Short fact-grounded summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateSummaryResponse'
+        '400':
+          $ref: '#/components/responses/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/ErrorResponse'
+        '422':
+          $ref: '#/components/responses/ErrorResponse'
+        '503':
+          $ref: '#/components/responses/ErrorResponse'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque
+  responses:
+    ErrorResponse:
+      description: Error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/APIError'
+  schemas:
+    CreateInstallationRequest:
+      type: object
+      additionalProperties: false
+      required: [invite_code, platform, app_version]
+      properties:
+        invite_code:
+          type: string
+          minLength: 4
+          maxLength: 128
+        platform:
+          type: string
+          enum: [android, ios, unknown]
+        app_version:
+          type: string
+          minLength: 1
+          maxLength: 64
+    CreateInstallationResponse:
+      type: object
+      additionalProperties: false
+      required: [installation_id, access_token]
+      properties:
+        installation_id:
+          type: string
+        access_token:
+          type: string
+          minLength: 32
+    GeneratePlanRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - request_id
+        - locale
+        - timezone
+        - catalog_version
+        - profile
+        - checkin
+        - muscle_states
+        - exercise_capabilities
+        - available_exercise_slugs
+      properties:
+        request_id:
+          type: string
+        locale:
+          type: string
+          const: zh-CN
+        timezone:
+          type: string
+        catalog_version:
+          type: integer
+          minimum: 1
+        profile:
+          $ref: '#/components/schemas/ProfileContext'
+        checkin:
+          $ref: '#/components/schemas/CheckInContext'
+        muscle_states:
+          type: array
+          maxItems: 30
+          items:
+            $ref: '#/components/schemas/MuscleState'
+        exercise_capabilities:
+          type: array
+          maxItems: 60
+          items:
+            $ref: '#/components/schemas/ExerciseCapability'
+        available_exercise_slugs:
+          type: array
+          minItems: 1
+          maxItems: 200
+          uniqueItems: true
+          items:
+            type: string
+    GeneratePlanResponse:
+      oneOf:
+        - $ref: '#/components/schemas/WorkoutPlanEnvelope'
+        - $ref: '#/components/schemas/StopGuidance'
+      discriminator:
+        propertyName: result_type
+    WorkoutPlanEnvelope:
+      type: object
+      additionalProperties: false
+      required: [result_type, request_id, source, plan]
+      properties:
+        result_type:
+          type: string
+          const: workout_plan
+        request_id:
+          type: string
+        source:
+          type: string
+          enum: [ai, repaired_ai, deterministic_fallback]
+        plan:
+          $ref: '#/components/schemas/WorkoutPlan'
+    StopGuidance:
+      type: object
+      additionalProperties: false
+      required: [result_type, request_id, reason_code, message]
+      properties:
+        result_type:
+          type: string
+          const: stop_and_seek_help
+        request_id:
+          type: string
+        reason_code:
+          type: string
+        message:
+          type: string
+          maxLength: 500
+    ProfileContext:
+      type: object
+      additionalProperties: false
+      required: [primary_goal, experience_level, environment, coaching_tone, preferences, constraints]
+      properties:
+        primary_goal:
+          type: string
+          enum: [maintain_muscle, general_health, gradual_muscle_gain, basic_fitness]
+        experience_level:
+          type: string
+          enum: [some_experience, experienced]
+        environment:
+          type: string
+          enum: [commercial_gym, home, other]
+        coaching_tone:
+          type: string
+          enum: [warm_specific, calm_direct, energetic]
+        preferences:
+          type: array
+          maxItems: 30
+          items:
+            type: string
+        constraints:
+          type: array
+          maxItems: 30
+          items:
+            type: string
+    CheckInContext:
+      type: object
+      additionalProperties: false
+      required: [available_minutes, energy_level, pain, wanted_focus, avoided_focus]
+      properties:
+        raw_text:
+          type: string
+          maxLength: 2000
+        available_minutes:
+          type: integer
+          minimum: 5
+          maximum: 240
+        energy_level:
+          type: integer
+          minimum: 1
+          maximum: 5
+        days_since_last_workout:
+          type: integer
+          minimum: 0
+          maximum: 3650
+        pain:
+          type: array
+          maxItems: 20
+          items:
+            $ref: '#/components/schemas/PainSignal'
+        wanted_focus:
+          type: array
+          maxItems: 20
+          items:
+            type: string
+        avoided_focus:
+          type: array
+          maxItems: 20
+          items:
+            type: string
+    PainSignal:
+      type: object
+      additionalProperties: false
+      required: [area, severity]
+      properties:
+        area:
+          type: string
+        severity:
+          type: integer
+          minimum: 1
+          maximum: 5
+        description:
+          type: string
+          maxLength: 300
+    MuscleState:
+      type: object
+      additionalProperties: false
+      required: [muscle_group, effective_sets_14d, priority_score]
+      properties:
+        muscle_group:
+          type: string
+        days_since_last_trained:
+          type: integer
+          minimum: 0
+          maximum: 3650
+        effective_sets_14d:
+          type: number
+          minimum: 0
+          maximum: 200
+        priority_score:
+          type: number
+          minimum: 0
+          maximum: 100
+    ExerciseCapability:
+      type: object
+      additionalProperties: false
+      required: [exercise_slug, confidence]
+      properties:
+        exercise_slug:
+          type: string
+        last_load_kg:
+          type: number
+          minimum: 0
+          maximum: 1000
+        last_reps:
+          type: integer
+          minimum: 0
+          maximum: 500
+        typical_effort:
+          type: string
+          enum: [easy, good, heavy]
+        days_since_last_performed:
+          type: integer
+          minimum: 0
+          maximum: 3650
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+    WorkoutPlan:
+      type: object
+      additionalProperties: false
+      required:
+        - plan_id
+        - title
+        - session_type
+        - goal_summary
+        - coach_message
+        - estimated_minutes
+        - intensity_guidance
+        - exercises
+      properties:
+        plan_id:
+          type: string
+        title:
+          type: string
+          maxLength: 80
+        session_type:
+          type: string
+          enum: [recovery_full_body, full_body, upper_body, lower_body, mixed, cardio_support]
+        goal_summary:
+          type: string
+          maxLength: 300
+        coach_message:
+          type: string
+          maxLength: 500
+        estimated_minutes:
+          type: integer
+          minimum: 5
+          maximum: 240
+        intensity_guidance:
+          type: string
+          maxLength: 200
+        exercises:
+          type: array
+          minItems: 1
+          maxItems: 15
+          items:
+            $ref: '#/components/schemas/PlannedExercise'
+    PlannedExercise:
+      type: object
+      additionalProperties: false
+      required:
+        - item_id
+        - order_index
+        - block_type
+        - exercise_slug
+        - sets
+        - rest_seconds
+        - load_basis
+        - cue
+      properties:
+        item_id:
+          type: string
+        order_index:
+          type: integer
+          minimum: 0
+          maximum: 30
+        block_type:
+          type: string
+          enum: [warmup, strength, core, cardio, cooldown]
+        exercise_slug:
+          type: string
+        sets:
+          type: integer
+          minimum: 1
+          maximum: 10
+        reps_min:
+          type: integer
+          minimum: 1
+          maximum: 500
+        reps_max:
+          type: integer
+          minimum: 1
+          maximum: 500
+        target_duration_seconds:
+          type: integer
+          minimum: 1
+          maximum: 21600
+        target_rir:
+          type: integer
+          minimum: 0
+          maximum: 6
+        rest_seconds:
+          type: integer
+          minimum: 0
+          maximum: 600
+        suggested_load_kg:
+          type: number
+          minimum: 0
+          maximum: 1000
+        load_basis:
+          type: string
+          enum: [explore, previous_session, user_input, conservative_adjustment]
+        cue:
+          type: string
+          maxLength: 300
+        alternative_slugs:
+          type: array
+          maxItems: 5
+          items:
+            type: string
+    AdjustPlanRequest:
+      type: object
+      additionalProperties: false
+      required: [request_id, catalog_version, current_plan, completed_item_ids, adjustment]
+      properties:
+        request_id:
+          type: string
+        catalog_version:
+          type: integer
+          minimum: 1
+        current_plan:
+          $ref: '#/components/schemas/WorkoutPlan'
+        completed_item_ids:
+          type: array
+          maxItems: 30
+          items:
+            type: string
+        adjustment:
+          $ref: '#/components/schemas/WorkoutAdjustment'
+    WorkoutAdjustment:
+      type: object
+      additionalProperties: false
+      required: [type]
+      properties:
+        type:
+          type: string
+          enum: [shorten, replace_exercise, reduce_intensity, avoid_area, free_text]
+        remaining_minutes:
+          type: integer
+          minimum: 5
+          maximum: 240
+        target_item_id:
+          type: string
+        avoid_area:
+          type: string
+        raw_text:
+          type: string
+          maxLength: 1000
+    CreateSummaryRequest:
+      type: object
+      additionalProperties: false
+      required: [request_id, session]
+      properties:
+        request_id:
+          type: string
+        session:
+          $ref: '#/components/schemas/CompletedSessionSummary'
+        comparable_history:
+          type: array
+          maxItems: 20
+          items:
+            $ref: '#/components/schemas/ComparableExerciseResult'
+    CompletedSessionSummary:
+      type: object
+      additionalProperties: false
+      required: [actual_duration_seconds, completed_sets, skipped_items, muscle_coverage]
+      properties:
+        actual_duration_seconds:
+          type: integer
+          minimum: 0
+          maximum: 86400
+        completed_sets:
+          type: integer
+          minimum: 0
+          maximum: 300
+        skipped_items:
+          type: integer
+          minimum: 0
+          maximum: 100
+        cardio_minutes:
+          type: integer
+          minimum: 0
+          maximum: 300
+        muscle_coverage:
+          type: object
+          additionalProperties:
+            type: number
+            minimum: 0
+            maximum: 100
+        notes:
+          type: array
+          maxItems: 20
+          items:
+            type: string
+    ComparableExerciseResult:
+      type: object
+      additionalProperties: false
+      required: [exercise_slug, fact]
+      properties:
+        exercise_slug:
+          type: string
+        fact:
+          type: string
+          maxLength: 300
+    CreateSummaryResponse:
+      type: object
+      additionalProperties: false
+      required: [request_id, headline, message, grounded_facts, memory_candidates]
+      properties:
+        request_id:
+          type: string
+        headline:
+          type: string
+          maxLength: 100
+        message:
+          type: string
+          maxLength: 600
+        grounded_facts:
+          type: array
+          maxItems: 10
+          items:
+            type: string
+        memory_candidates:
+          type: array
+          maxItems: 10
+          items:
+            $ref: '#/components/schemas/MemoryCandidate'
+    MemoryCandidate:
+      type: object
+      additionalProperties: false
+      required: [memory_type, content, confidence]
+      properties:
+        memory_type:
+          type: string
+          enum: [preference, constraint, habit, context, communication]
+        content:
+          type: string
+          maxLength: 300
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+    APIError:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message, request_id, retryable]
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            request_id:
+              type: string
+            retryable:
+              type: boolean

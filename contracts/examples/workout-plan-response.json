@@ -1,0 +1,97 @@
+{
+  "result_type": "workout_plan",
+  "request_id": "req_01J00000000000000000000001",
+  "source": "ai",
+  "plan": {
+    "plan_id": "plan_01J00000000000000000000001",
+    "title": "恢复型全身力量 + 有氧",
+    "session_type": "recovery_full_body",
+    "goal_summary": "重新覆盖主要肌群，找回动作节奏，不做补偿性加量。",
+    "coach_message": "一周没练，今天把强度留在还有约 3 次余力。完成主要动作后再做短有氧即可。",
+    "estimated_minutes": 68,
+    "intensity_guidance": "每组保留约 3 次余力；动作稳定优先。",
+    "exercises": [
+      {
+        "item_id": "item_1",
+        "order_index": 0,
+        "block_type": "strength",
+        "exercise_slug": "leg_press",
+        "sets": 3,
+        "reps_min": 10,
+        "reps_max": 12,
+        "target_rir": 3,
+        "rest_seconds": 90,
+        "suggested_load_kg": 65,
+        "load_basis": "conservative_adjustment",
+        "cue": "腰臀贴紧靠背，膝盖与脚尖方向一致。",
+        "alternative_slugs": [
+          "machine_leg_extension"
+        ]
+      },
+      {
+        "item_id": "item_2",
+        "order_index": 1,
+        "block_type": "strength",
+        "exercise_slug": "machine_chest_press",
+        "sets": 3,
+        "reps_min": 8,
+        "reps_max": 12,
+        "target_rir": 3,
+        "rest_seconds": 90,
+        "load_basis": "explore",
+        "cue": "肩胛稳定，不耸肩。",
+        "alternative_slugs": [
+          "dumbbell_bench_press"
+        ]
+      },
+      {
+        "item_id": "item_3",
+        "order_index": 2,
+        "block_type": "strength",
+        "exercise_slug": "lat_pulldown",
+        "sets": 3,
+        "reps_min": 10,
+        "reps_max": 12,
+        "target_rir": 3,
+        "rest_seconds": 90,
+        "suggested_load_kg": 40,
+        "load_basis": "previous_session",
+        "cue": "拉向锁骨附近，避免大幅后仰。",
+        "alternative_slugs": [
+          "assisted_pull_up"
+        ]
+      },
+      {
+        "item_id": "item_4",
+        "order_index": 3,
+        "block_type": "strength",
+        "exercise_slug": "machine_leg_curl",
+        "sets": 2,
+        "reps_min": 10,
+        "reps_max": 15,
+        "target_rir": 3,
+        "rest_seconds": 75,
+        "load_basis": "explore",
+        "cue": "控制回程，不要快速弹回。",
+        "alternative_slugs": [
+          "seated_leg_curl"
+        ]
+      },
+      {
+        "item_id": "item_5",
+        "order_index": 4,
+        "block_type": "cardio",
+        "exercise_slug": "incline_treadmill_walk",
+        "sets": 1,
+        "target_rir": 3,
+        "rest_seconds": 0,
+        "load_basis": "explore",
+        "cue": "保持能够说完整句子的强度。",
+        "alternative_slugs": [
+          "elliptical"
+        ],
+        "target_duration_seconds": 900
+      }
+    ]
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "request_id": "req_01J00000000000000000000003",
+  "session": {
+    "actual_duration_seconds": 3900,
+    "completed_sets": 15,
+    "skipped_items": 1,
+    "cardio_minutes": 15,
+    "muscle_coverage": {
+      "legs": 80,
+      "back": 75,
+      "chest": 60,
+      "core": 35
+    },
+    "notes": [
+      "整体体感合适",
+      "没有腰部不适"
+    ]
+  },
+  "comparable_history": [
+    {
+      "exercise_slug": "lat_pulldown",
+      "fact": "相同 40 kg 下，本次总次数比上次多 3 次。"
+    }
+  ]
+}

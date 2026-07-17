@@ -1,0 +1,8 @@
+{
+  "error": {
+    "code": "llm_unavailable",
+    "message": "暂时无法生成远程计划，可以使用本地计划继续。",
+    "request_id": "req_01J00000000000000000000004",
+    "retryable": true
+  }
+}

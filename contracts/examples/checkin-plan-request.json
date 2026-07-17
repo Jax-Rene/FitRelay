@@ -1,0 +1,79 @@
+{
+  "request_id": "req_01J00000000000000000000001",
+  "locale": "zh-CN",
+  "timezone": "Asia/Shanghai",
+  "catalog_version": 1,
+  "profile": {
+    "primary_goal": "maintain_muscle",
+    "experience_level": "some_experience",
+    "environment": "commercial_gym",
+    "coaching_tone": "warm_specific",
+    "preferences": [
+      "machine_training",
+      "cardio_after_strength"
+    ],
+    "constraints": [
+      "lower_back_history"
+    ]
+  },
+  "checkin": {
+    "raw_text": "一周没练，今天有70分钟，状态还行，腰没问题，想练全身再做一点有氧。",
+    "available_minutes": 70,
+    "energy_level": 3,
+    "days_since_last_workout": 7,
+    "pain": [],
+    "wanted_focus": [
+      "full_body",
+      "cardio"
+    ],
+    "avoided_focus": []
+  },
+  "muscle_states": [
+    {
+      "muscle_group": "chest",
+      "days_since_last_trained": 9,
+      "effective_sets_14d": 3,
+      "priority_score": 62
+    },
+    {
+      "muscle_group": "back",
+      "days_since_last_trained": 9,
+      "effective_sets_14d": 3,
+      "priority_score": 65
+    },
+    {
+      "muscle_group": "legs",
+      "days_since_last_trained": 12,
+      "effective_sets_14d": 2,
+      "priority_score": 78
+    }
+  ],
+  "exercise_capabilities": [
+    {
+      "exercise_slug": "leg_press",
+      "last_load_kg": 70,
+      "last_reps": 10,
+      "typical_effort": "good",
+      "days_since_last_performed": 12,
+      "confidence": 0.7
+    },
+    {
+      "exercise_slug": "lat_pulldown",
+      "last_load_kg": 40,
+      "last_reps": 12,
+      "typical_effort": "good",
+      "days_since_last_performed": 9,
+      "confidence": 0.8
+    }
+  ],
+  "available_exercise_slugs": [
+    "leg_press",
+    "machine_chest_press",
+    "lat_pulldown",
+    "seated_cable_row",
+    "machine_leg_curl",
+    "dumbbell_lateral_raise",
+    "dead_bug",
+    "elliptical"
+  ]
+}

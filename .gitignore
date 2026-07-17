@@ -1,0 +1,31 @@
+# Local secrets
+.env
+.env.*
+!.env.example
+deploy/.env
+
+# macOS and editors
+.DS_Store
+.idea/
+.vscode/
+*.iml
+*.swp
+
+# Logs and local runtime data
+*.log
+*.db
+*.db-shm
+*.db-wal
+services/api/bin/
+services/api/data/
+
+# Generated test and device artifacts
+artifacts/android-ui-audit/
+artifacts/device-audit/
+mobile/test/failures/
+
+# Common build caches
+node_modules/
+.next/
+.dart_tool/
+coverage/
