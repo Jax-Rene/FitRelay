@@ -95,6 +95,66 @@ jobs:
           retention-days: 14
           compression-level: 0
 
+  publish_apk:
+    name: Publish APK to GitHub Releases
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs:
+      - android
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Download built APK
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: fitrelay-android-${{ github.sha }}
+          path: fitrelay-apk
+
+      - name: Publish rolling GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          cp fitrelay-apk/app-debug.apk FitRelay-latest.apk
+
+          release_notes="$(
+            cat <<EOF
+          最新一次通过测试的 FitRelay Android 安装包。
+
+          Commit: ${GITHUB_SHA}
+
+          [下载 FitRelay-latest.apk](https://github.com/${REPOSITORY}/releases/download/latest-dev/FitRelay-latest.apk)
+
+          扫码下载：
+
+          ![FitRelay 下载二维码](https://github.com/${REPOSITORY}/releases/download/latest-dev/FitRelay-download-QR.png)
+          EOF
+          )"
+
+          if gh release view latest-dev --repo "$REPOSITORY" >/dev/null 2>&1; then
+            gh release edit latest-dev \
+              --repo "$REPOSITORY" \
+              --title "FitRelay Android · Latest" \
+              --prerelease \
+              --notes "$release_notes"
+          else
+            gh release create latest-dev \
+              --repo "$REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "FitRelay Android · Latest" \
+              --prerelease \
+              --notes "$release_notes"
+          fi
+
+          gh release upload latest-dev \
+            --repo "$REPOSITORY" \
+            FitRelay-latest.apk \
+            deploy/github-assets/FitRelay-download-QR.png \
+            --clobber
+
   deploy:
     name: Deploy API to Tencent Cloud
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
