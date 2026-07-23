@@ -78,19 +78,42 @@ jobs:
           )
           flutter test "${tests[@]}"
 
-      - name: Build installable APK
+      - name: Configure release signing
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          test -n "$ANDROID_KEYSTORE_BASE64"
+          test -n "$ANDROID_KEYSTORE_PASSWORD"
+          test -n "$ANDROID_KEY_PASSWORD"
+
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" \
+            | base64 --decode \
+            > android/app/fitrelay-release.jks
+
+          cat > android/key.properties <<EOF
+          storePassword=$ANDROID_KEYSTORE_PASSWORD
+          keyPassword=$ANDROID_KEY_PASSWORD
+          keyAlias=fitrelay
+          storeFile=fitrelay-release.jks
+          EOF
+
+      - name: Build signed release APKs
         env:
           API_BASE_URL: ${{ vars.FITRELAY_API_BASE_URL || 'http://43.155.164.131' }}
         run: >-
           flutter build apk
-          --debug
+          --release
+          --split-per-abi
+          --build-number="$GITHUB_RUN_NUMBER"
           --dart-define=API_BASE_URL="$API_BASE_URL"
 
-      - name: Upload APK
+      - name: Upload release APKs
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: fitrelay-android-${{ github.sha }}
-          path: mobile/build/app/outputs/flutter-apk/app-debug.apk
+          path: mobile/build/app/outputs/flutter-apk/*-release.apk
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
@@ -118,17 +141,27 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
         run: |
-          cp fitrelay-apk/app-debug.apk FitRelay-latest.apk
+          cp \
+            fitrelay-apk/app-arm64-v8a-release.apk \
+            FitRelay-latest.apk
+          cp \
+            fitrelay-apk/app-armeabi-v7a-release.apk \
+            FitRelay-armeabi-v7a.apk
+          cp \
+            fitrelay-apk/app-x86_64-release.apk \
+            FitRelay-x86_64.apk
 
           release_notes="$(
             cat <<EOF
-          最新一次通过测试的 FitRelay Android 安装包。
+          最新一次通过测试并使用稳定签名的 FitRelay Android 安装包。
 
           Commit: ${GITHUB_SHA}
 
-          [下载 FitRelay-latest.apk](https://github.com/${REPOSITORY}/releases/download/latest-dev/FitRelay-latest.apk)
+          - [下载 ARM64 主流手机版本](https://github.com/${REPOSITORY}/releases/download/latest-dev/FitRelay-latest.apk)
+          - [下载 32 位 ARM 备用版本](https://github.com/${REPOSITORY}/releases/download/latest-dev/FitRelay-armeabi-v7a.apk)
+          - [下载 x86_64 模拟器版本](https://github.com/${REPOSITORY}/releases/download/latest-dev/FitRelay-x86_64.apk)
 
-          扫码下载：
+          二维码默认下载 ARM64 主流手机版本：
 
           ![FitRelay 下载二维码](https://github.com/${REPOSITORY}/releases/download/latest-dev/FitRelay-download-QR.png)
           EOF
@@ -152,6 +185,8 @@ jobs:
           gh release upload latest-dev \
             --repo "$REPOSITORY" \
             FitRelay-latest.apk \
+            FitRelay-armeabi-v7a.apk \
+            FitRelay-x86_64.apk \
             deploy/github-assets/FitRelay-download-QR.png \
             --clobber
 
