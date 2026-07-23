@@ -1,0 +1,170 @@
+name: FitRelay CI/CD
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: fitrelay-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  FLUTTER_VERSION: 3.44.7
+
+jobs:
+  backend:
+    name: Test API
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/api
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: services/api/go.mod
+          cache-dependency-path: services/api/go.sum
+
+      - name: Run API tests
+        run: go test ./...
+
+  android:
+    name: Test and build Android APK
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Java
+        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Run tests
+        run: flutter test
+
+      - name: Build installable APK
+        env:
+          API_BASE_URL: ${{ vars.FITRELAY_API_BASE_URL || 'http://43.155.164.131' }}
+        run: >-
+          flutter build apk
+          --debug
+          --dart-define=API_BASE_URL="$API_BASE_URL"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: fitrelay-android-${{ github.sha }}
+          path: mobile/build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+  deploy:
+    name: Deploy API to Tencent Cloud
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs:
+      - backend
+      - android
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Prepare SSH
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/fitrelay
+          chmod 600 ~/.ssh/fitrelay
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+          test -n "$DEPLOY_HOST"
+
+      - name: Package deployment
+        run: |
+          tar \
+            --exclude-vcs \
+            --exclude='services/api/data' \
+            -czf fitrelay-deploy.tar.gz \
+            services/api \
+            deploy/docker-compose.server.yml
+
+      - name: Upload deployment package
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          scp -i ~/.ssh/fitrelay \
+            fitrelay-deploy.tar.gz \
+            "$DEPLOY_USER@$DEPLOY_HOST:/tmp/fitrelay-${GITHUB_SHA}.tar.gz"
+
+      - name: Activate deployment
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          ssh -i ~/.ssh/fitrelay "$DEPLOY_USER@$DEPLOY_HOST" \
+            "FITRELAY_SHA='$GITHUB_SHA' bash -s" <<'REMOTE'
+          set -Eeuo pipefail
+
+          release="/opt/fitrelay/releases/${FITRELAY_SHA}"
+          archive="/tmp/fitrelay-${FITRELAY_SHA}.tar.gz"
+
+          mkdir -p "$release"
+          tar -xzf "$archive" -C "$release"
+          ln -sfn "$release" /opt/fitrelay/current
+
+          cd /opt/fitrelay/current/deploy
+          docker compose \
+            --file docker-compose.server.yml \
+            up --detach --build --remove-orphans
+
+          curl \
+            --fail \
+            --retry 12 \
+            --retry-delay 5 \
+            http://127.0.0.1:18080/healthz
+
+          rm -f "$archive"
+
+          find /opt/fitrelay/releases \
+            -mindepth 1 \
+            -maxdepth 1 \
+            -type d \
+            -printf '%T@ %p\n' \
+            | sort -nr \
+            | tail -n +6 \
+            | cut -d' ' -f2- \
+            | xargs -r rm -rf --
+          REMOTE
