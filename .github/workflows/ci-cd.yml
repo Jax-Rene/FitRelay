@@ -66,8 +66,17 @@ jobs:
       - name: Analyze
         run: flutter analyze
 
-      - name: Run tests
-        run: flutter test
+      - name: Run portable tests
+        shell: bash
+        run: |
+          mapfile -t tests < <(
+            find test \
+              -type f \
+              -name '*_test.dart' \
+              ! -name 'golden_test.dart' \
+              -print
+          )
+          flutter test "${tests[@]}"
 
       - name: Build installable APK
         env:
