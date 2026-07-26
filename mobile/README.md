@@ -8,14 +8,17 @@
 - 可返回修改，进度始终可见；
 - 语音介绍支持跳过、模拟识别、重录和确认；
 - 完成后进入「今天怎么练」首页；
-- 胸部动作库首批包含 12 个高频动作，可按器械、哑铃、杠铃和自重筛选；
+- 本地动作库包含 873 个动作、1,746 张双阶段演示图，覆盖全身主要肌群；
+- 可按目标肌群、训练类型、器械和关键词组合筛选；
+- 封面提供加载与失败占位；动作详情预加载双帧并支持自动播放、暂停和起止姿势手动切换；
 - 每个动作包含双阶段演示、中文步骤、关键提示、难度和训练参数；
 - 计划确认页和训练中均可从动作库真实替换动作。
 
-动作元数据与 24 张演示图片来自 Public Domain / Unlicense 的 `free-exercise-db`，完整来源记录见 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。重新核验或导入素材：
+动作元数据与 1,746 张演示图片来自 Public Domain / Unlicense 的 `free-exercise-db`。其中 12 个常用胸部动作保留中文精修名称、步骤和训练参数，其余动作保留数据源英文名称与步骤，避免未经审核的机器翻译影响安全提示。完整来源记录见 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。重新核验或导入素材：
 
 ```bash
 ../scripts/import_exercise_library.py --check
+../scripts/import_exercise_library.py --jobs 16
 ```
 
 ## 本地命令

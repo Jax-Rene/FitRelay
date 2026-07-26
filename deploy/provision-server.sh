@@ -11,6 +11,12 @@ if [[ -z "${DEPLOY_PUBLIC_KEY:-}" ]]; then
   exit 1
 fi
 
+api_host="${FITRELAY_API_HOST:-fitrelay-api.43-155-164-131.sslip.io}"
+if [[ ! "$api_host" =~ ^[A-Za-z0-9.-]+$ ]]; then
+  echo "FITRELAY_API_HOST must be a valid hostname." >&2
+  exit 1
+fi
+
 export DEBIAN_FRONTEND=noninteractive
 
 apt-get update
@@ -82,12 +88,13 @@ if [[ -f /etc/caddy/Caddyfile && ! -f /etc/caddy/Caddyfile.pre-fitrelay ]]; then
   cp /etc/caddy/Caddyfile /etc/caddy/Caddyfile.pre-fitrelay
 fi
 
-cat > /etc/caddy/Caddyfile <<'CADDY'
-:80 {
+cat > /etc/caddy/Caddyfile <<CADDY
+${api_host} {
   encode zstd gzip
   reverse_proxy 127.0.0.1:18080
 
   header {
+    Strict-Transport-Security "max-age=31536000; includeSubDomains"
     X-Content-Type-Options nosniff
     X-Frame-Options DENY
     Referrer-Policy no-referrer

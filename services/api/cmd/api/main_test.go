@@ -173,6 +173,9 @@ func TestDeepSeekPlanIsValidatedAndReturned(t *testing.T) {
 		if request.ResponseFormat["type"] != "json_object" || request.Thinking["type"] != "disabled" {
 			t.Fatalf("unexpected structured-output settings: %#v", request)
 		}
+		if !strings.Contains(request.Messages[0].Content, "block_type 只能是 warmup、strength、core、cardio、cooldown") {
+			t.Fatal("system prompt did not constrain block_type values")
+		}
 		if !strings.Contains(request.Messages[1].Content, "今天想稳一点") {
 			t.Fatal("raw check-in text was not sent to DeepSeek")
 		}
@@ -196,6 +199,44 @@ func TestDeepSeekPlanIsValidatedAndReturned(t *testing.T) {
 	}
 	if provider != "deepseek" || model != "deepseek-v4-flash" || status != "succeeded" {
 		t.Fatalf("unexpected AI run metadata: provider=%s model=%s status=%s", provider, model, status)
+	}
+}
+
+func TestDeepSeekCommonEnumsAndVolumeAreSafelyNormalized(t *testing.T) {
+	aiContent := `{"plan_id":"ignored","title":"30 分钟全身训练","session_type":"workout","goal_summary":"覆盖主要肌群。","coach_message":"动作稳定优先。","estimated_minutes":45,"intensity_guidance":"每组保留 3 次余力。","exercises":[{"item_id":"item_1","order_index":0,"block_type":"main","exercise_slug":"leg_press","sets":8,"reps_min":0,"reps_max":50,"target_rir":9,"rest_seconds":400,"load_basis":"default","cue":"腰臀贴紧靠背。","alternative_slugs":["unknown_exercise"]}]}`
+	upstream, ai := deepSeekStub(t, aiContent, nil)
+	defer upstream.Close()
+
+	s, handler := testServer(t)
+	s.ai = ai
+	token := installForTest(t, handler)
+	body := `{"request_id":"req_ai_repaired","locale":"zh-CN","timezone":"Asia/Shanghai","profile":{"primary_goal":"maintain_muscle"},"checkin":{"raw_text":"今天想稳一点","available_minutes":30,"energy_level":3,"pain":[],"wanted_focus":["full_body"],"avoided_focus":[]},"muscle_states":[],"exercise_capabilities":[],"available_exercise_slugs":["leg_press"]}`
+	request := httptest.NewRequest(http.MethodPost, "/v1/coach/plans", bytes.NewBufferString(body))
+	request.Header.Set("Authorization", "Bearer "+token)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK || !bytes.Contains(response.Body.Bytes(), []byte(`"source":"repaired_ai"`)) {
+		t.Fatalf("plan status=%d body=%s", response.Code, response.Body.String())
+	}
+	var envelope struct {
+		Plan workoutPlan `json:"plan"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	exercise := envelope.Plan.Exercises[0]
+	if envelope.Plan.SessionType != "mixed" ||
+		envelope.Plan.EstimatedMinutes != 30 ||
+		exercise.BlockType != "strength" ||
+		exercise.Sets != 5 ||
+		exercise.RepsMin != 8 ||
+		exercise.RepsMax != 12 ||
+		exercise.TargetRIR != 3 ||
+		exercise.RestSeconds != 300 ||
+		exercise.LoadBasis != "explore" ||
+		len(exercise.AlternativeSlugs) != 0 {
+		t.Fatalf("unexpected normalized plan: %#v", envelope.Plan)
 	}
 }
 

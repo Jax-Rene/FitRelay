@@ -2,15 +2,39 @@ import 'package:flutter/material.dart';
 
 import 'workout_plan.dart';
 
+part 'exercise_catalog_data.g.dart';
+
 enum ExerciseEquipment {
   machine('器械', Icons.precision_manufacturing_rounded),
   dumbbell('哑铃', Icons.fitness_center_rounded),
   barbell('杠铃', Icons.horizontal_rule_rounded),
   bodyweight('自重', Icons.accessibility_new_rounded),
   cable('绳索', Icons.cable_rounded),
-  cardio('有氧器械', Icons.directions_run_rounded);
+  cardio('有氧器械', Icons.directions_run_rounded),
+  bands('弹力带', Icons.linear_scale_rounded),
+  ezBar('曲杆', Icons.horizontal_rule_rounded),
+  exerciseBall('健身球', Icons.sports_basketball_rounded),
+  foamRoller('泡沫轴', Icons.view_column_rounded),
+  kettlebell('壶铃', Icons.fitness_center_rounded),
+  medicineBall('药球', Icons.sports_handball_rounded),
+  other('其他', Icons.category_rounded);
 
   const ExerciseEquipment(this.label, this.icon);
+
+  final String label;
+  final IconData icon;
+}
+
+enum ExerciseCategory {
+  strength('力量训练', Icons.fitness_center_rounded),
+  cardio('有氧', Icons.directions_run_rounded),
+  stretching('拉伸', Icons.self_improvement_rounded),
+  plyometrics('爆发力', Icons.bolt_rounded),
+  olympicWeightlifting('举重', Icons.sports_gymnastics_rounded),
+  powerlifting('力量举', Icons.monitor_weight_rounded),
+  strongman('壮汉训练', Icons.local_fire_department_rounded);
+
+  const ExerciseCategory(this.label, this.icon);
 
   final String label;
   final IconData icon;
@@ -28,6 +52,7 @@ class ExerciseCatalogEntry {
     required this.instructions,
     required this.cue,
     required this.defaultLoadKg,
+    this.category = ExerciseCategory.strength,
     this.repsMin = 8,
     this.repsMax = 12,
     this.restSeconds = 90,
@@ -38,6 +63,7 @@ class ExerciseCatalogEntry {
   final String name;
   final String muscle;
   final ExerciseEquipment equipment;
+  final ExerciseCategory category;
   final String level;
   final List<String> images;
   final List<String> instructions;
@@ -61,7 +87,7 @@ class ExerciseCatalogEntry {
 
 const _assetRoot = 'assets/exercise_library';
 
-const exerciseCatalog = <ExerciseCatalogEntry>[
+const curatedExerciseCatalog = <ExerciseCatalogEntry>[
   ExerciseCatalogEntry(
     slug: 'machine_chest_press',
     sourceId: 'Leverage_Chest_Press',
@@ -70,8 +96,8 @@ const exerciseCatalog = <ExerciseCatalogEntry>[
     equipment: ExerciseEquipment.machine,
     level: '入门友好',
     images: [
-      '$_assetRoot/leverage-chest-press_0.jpg',
-      '$_assetRoot/leverage-chest-press_1.jpg',
+      '$_assetRoot/leverage-chest-press_0.webp',
+      '$_assetRoot/leverage-chest-press_1.webp',
     ],
     instructions: ['调整座椅，让把手与胸部中线齐平。', '肩胛向后下方收紧，推出时不要耸肩。', '缓慢回到起点，保持胸部持续发力。'],
     cue: '肩胛稳定，不耸肩，回程保持控制。',
@@ -84,7 +110,7 @@ const exerciseCatalog = <ExerciseCatalogEntry>[
     muscle: '胸部',
     equipment: ExerciseEquipment.machine,
     level: '入门友好',
-    images: ['$_assetRoot/butterfly_0.jpg', '$_assetRoot/butterfly_1.jpg'],
+    images: ['$_assetRoot/butterfly_0.webp', '$_assetRoot/butterfly_1.webp'],
     instructions: ['背部贴紧靠垫，手肘与肩部大致同高。', '像抱住大树一样把手臂向胸前合拢。', '停顿后慢慢打开，不让配重撞击。'],
     cue: '用胸去合拢手臂，不要用手腕硬推。',
     defaultLoadKg: 25,
@@ -100,8 +126,8 @@ const exerciseCatalog = <ExerciseCatalogEntry>[
     equipment: ExerciseEquipment.machine,
     level: '入门友好',
     images: [
-      '$_assetRoot/leverage-incline-chest-press_0.jpg',
-      '$_assetRoot/leverage-incline-chest-press_1.jpg',
+      '$_assetRoot/leverage-incline-chest-press_0.webp',
+      '$_assetRoot/leverage-incline-chest-press_1.webp',
     ],
     instructions: ['让把手起点位于上胸两侧。', '脚掌踩稳，肩胛贴紧靠垫。', '向前上方推起，肘部不要完全锁死。'],
     cue: '把力量送向上胸，肩膀不要向前顶。',
@@ -115,8 +141,8 @@ const exerciseCatalog = <ExerciseCatalogEntry>[
     equipment: ExerciseEquipment.dumbbell,
     level: '入门友好',
     images: [
-      '$_assetRoot/dumbbell-bench-press_0.jpg',
-      '$_assetRoot/dumbbell-bench-press_1.jpg',
+      '$_assetRoot/dumbbell-bench-press_0.webp',
+      '$_assetRoot/dumbbell-bench-press_1.webp',
     ],
     instructions: [
       '双脚踩稳，肩胛向后下方固定。',
@@ -134,8 +160,8 @@ const exerciseCatalog = <ExerciseCatalogEntry>[
     equipment: ExerciseEquipment.dumbbell,
     level: '入门友好',
     images: [
-      '$_assetRoot/incline-dumbbell-press_0.jpg',
-      '$_assetRoot/incline-dumbbell-press_1.jpg',
+      '$_assetRoot/incline-dumbbell-press_0.webp',
+      '$_assetRoot/incline-dumbbell-press_1.webp',
     ],
     instructions: ['将训练凳调到约 30°。', '哑铃从上胸两侧开始，肩胛保持稳定。', '向上推起并缓慢下降，避免哑铃碰撞。'],
     cue: '凳子不要太陡，优先感受上胸而不是肩前束。',
@@ -149,8 +175,8 @@ const exerciseCatalog = <ExerciseCatalogEntry>[
     equipment: ExerciseEquipment.dumbbell,
     level: '需要控制',
     images: [
-      '$_assetRoot/dumbbell-flyes_0.jpg',
-      '$_assetRoot/dumbbell-flyes_1.jpg',
+      '$_assetRoot/dumbbell-flyes_0.webp',
+      '$_assetRoot/dumbbell-flyes_1.webp',
     ],
     instructions: ['用明显轻于卧推的重量开始。', '保持手肘微屈，沿弧线打开双臂。', '胸部有拉伸感后合拢，不追求过深幅度。'],
     cue: '全程保持同样的肘部角度，避免肩前侧不适。',
@@ -167,8 +193,8 @@ const exerciseCatalog = <ExerciseCatalogEntry>[
     equipment: ExerciseEquipment.barbell,
     level: '基础进阶',
     images: [
-      '$_assetRoot/barbell-bench-press---medium-grip_0.jpg',
-      '$_assetRoot/barbell-bench-press---medium-grip_1.jpg',
+      '$_assetRoot/barbell-bench-press---medium-grip_0.webp',
+      '$_assetRoot/barbell-bench-press---medium-grip_1.webp',
     ],
     instructions: ['眼睛位于杠铃正下方，双脚踩稳。', '收紧肩胛，把杠铃下放到胸部中下段。', '沿略向后的轨迹推起，始终握紧杠铃。'],
     cue: '先固定肩胛再出杠，最好让同伴保护。',
@@ -185,8 +211,8 @@ const exerciseCatalog = <ExerciseCatalogEntry>[
     equipment: ExerciseEquipment.barbell,
     level: '基础进阶',
     images: [
-      '$_assetRoot/barbell-incline-bench-press---medium-grip_0.jpg',
-      '$_assetRoot/barbell-incline-bench-press---medium-grip_1.jpg',
+      '$_assetRoot/barbell-incline-bench-press---medium-grip_0.webp',
+      '$_assetRoot/barbell-incline-bench-press---medium-grip_1.webp',
     ],
     instructions: ['将训练凳调到约 30°，脚掌踩稳。', '杠铃下放到锁骨下方的上胸位置。', '保持肩胛稳定，向上推起。'],
     cue: '上斜角度适中，避免动作变成肩推。',
@@ -203,8 +229,8 @@ const exerciseCatalog = <ExerciseCatalogEntry>[
     equipment: ExerciseEquipment.barbell,
     level: '基础进阶',
     images: [
-      '$_assetRoot/decline-barbell-bench-press_0.jpg',
-      '$_assetRoot/decline-barbell-bench-press_1.jpg',
+      '$_assetRoot/decline-barbell-bench-press_0.webp',
+      '$_assetRoot/decline-barbell-bench-press_1.webp',
     ],
     instructions: ['固定双腿并确认器械安全。', '把杠铃下放到胸部下缘。', '稳定推起，不让手腕向后折。'],
     cue: '下斜位出杠不便，建议使用保护杆或同伴保护。',
@@ -220,7 +246,7 @@ const exerciseCatalog = <ExerciseCatalogEntry>[
     muscle: '胸部',
     equipment: ExerciseEquipment.bodyweight,
     level: '随时可练',
-    images: ['$_assetRoot/pushups_0.jpg', '$_assetRoot/pushups_1.jpg'],
+    images: ['$_assetRoot/pushups_0.webp', '$_assetRoot/pushups_1.webp'],
     instructions: ['双手略宽于肩，身体从头到脚保持直线。', '屈肘下降，肘部与身体约成 45°。', '胸部接近地面后推回起点。'],
     cue: '收紧腹部和臀部，不要塌腰或耸肩。',
     defaultLoadKg: 0,
@@ -236,8 +262,8 @@ const exerciseCatalog = <ExerciseCatalogEntry>[
     equipment: ExerciseEquipment.bodyweight,
     level: '新手首选',
     images: [
-      '$_assetRoot/incline-push-up_0.jpg',
-      '$_assetRoot/incline-push-up_1.jpg',
+      '$_assetRoot/incline-push-up_0.webp',
+      '$_assetRoot/incline-push-up_1.webp',
     ],
     instructions: ['双手撑在稳定的长凳或高台上。', '身体保持一条直线，胸部靠近支撑面。', '推回起点，逐渐降低支撑高度来进阶。'],
     cue: '支撑越高越轻松，先保证身体不塌腰。',
@@ -254,8 +280,8 @@ const exerciseCatalog = <ExerciseCatalogEntry>[
     equipment: ExerciseEquipment.bodyweight,
     level: '进阶挑战',
     images: [
-      '$_assetRoot/push-ups-with-feet-elevated_0.jpg',
-      '$_assetRoot/push-ups-with-feet-elevated_1.jpg',
+      '$_assetRoot/push-ups-with-feet-elevated_0.webp',
+      '$_assetRoot/push-ups-with-feet-elevated_1.webp',
     ],
     instructions: ['双脚放在稳定高台，双手略宽于肩。', '保持核心收紧，胸部向地面下降。', '推回起点，避免头部先抬起。'],
     cue: '脚越高难度越大，肩前侧不适时改做标准俯卧撑。',
@@ -264,6 +290,25 @@ const exerciseCatalog = <ExerciseCatalogEntry>[
     repsMax: 12,
     restSeconds: 90,
   ),
+];
+
+const exerciseCatalog = <ExerciseCatalogEntry>[
+  ...curatedExerciseCatalog,
+  ...generatedExerciseCatalog,
+];
+
+const exerciseMuscleOrder = <String>[
+  '胸部',
+  '背部',
+  '腿部',
+  '肩部',
+  '二头',
+  '三头',
+  '核心',
+  '前臂',
+  '颈部',
+  '有氧',
+  '全身',
 ];
 
 ExerciseCatalogEntry? catalogEntryForSlug(String slug) {
@@ -278,21 +323,14 @@ String exerciseImageAsset(String slug) =>
     catalogEntryForSlug(slug)?.images.first ??
     exerciseAssets['leg_press']!;
 
-String muscleForExercise(String slug) => switch (slug) {
-  'machine_chest_press' ||
-  'pec_deck_fly' ||
-  'machine_incline_chest_press' ||
-  'dumbbell_bench_press' ||
-  'incline_dumbbell_press' ||
-  'dumbbell_fly' ||
-  'barbell_bench_press' ||
-  'incline_barbell_bench_press' ||
-  'decline_barbell_bench_press' ||
-  'push_up' ||
-  'incline_push_up' ||
-  'decline_push_up' => '胸部',
-  'lat_pulldown' => '背部',
-  'leg_press' || 'machine_leg_curl' => '腿部',
-  'incline_treadmill_walk' => '有氧',
-  _ => '全身',
-};
+String muscleForExercise(String slug) {
+  final catalogEntry = catalogEntryForSlug(slug);
+  if (catalogEntry != null) return catalogEntry.muscle;
+
+  return switch (slug) {
+    'lat_pulldown' => '背部',
+    'leg_press' || 'machine_leg_curl' => '腿部',
+    'incline_treadmill_walk' => '有氧',
+    _ => '全身',
+  };
+}

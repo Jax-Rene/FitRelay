@@ -13,6 +13,23 @@ val releaseSigningProperties =
             releaseSigningPropertiesFile.inputStream().use { load(it) }
         }
     }
+val releaseBuildRequested =
+    gradle.startParameter.taskNames.any { it.contains("Release", ignoreCase = true) }
+val requiredSigningProperties =
+    listOf("keyAlias", "keyPassword", "storeFile", "storePassword")
+
+if (releaseBuildRequested) {
+    check(releaseSigningPropertiesFile.exists()) {
+        "Release signing is required. Create android/key.properties before building."
+    }
+    val missingSigningProperties =
+        requiredSigningProperties.filter {
+            releaseSigningProperties.getProperty(it).isNullOrBlank()
+        }
+    check(missingSigningProperties.isEmpty()) {
+        "Missing release signing properties: ${missingSigningProperties.joinToString()}"
+    }
+}
 
 android {
     namespace = "ai.suilian.suilian_ai"

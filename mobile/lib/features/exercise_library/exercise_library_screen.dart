@@ -8,12 +8,14 @@ import '../../theme/app_theme.dart';
 class ExerciseLibraryScreen extends StatefulWidget {
   const ExerciseLibraryScreen({
     super.key,
-    this.initialMuscle = '胸部',
+    this.initialMuscle = '全部',
+    this.initialCategory,
     this.currentSlug,
     this.selectionMode = false,
   });
 
   final String initialMuscle;
+  final ExerciseCategory? initialCategory;
   final String? currentSlug;
   final bool selectionMode;
 
@@ -23,6 +25,7 @@ class ExerciseLibraryScreen extends StatefulWidget {
 
 class _ExerciseLibraryScreenState extends State<ExerciseLibraryScreen> {
   late String _muscle;
+  ExerciseCategory? _category;
   ExerciseEquipment? _equipment;
   String _query = '';
 
@@ -33,23 +36,42 @@ class _ExerciseLibraryScreenState extends State<ExerciseLibraryScreen> {
         exerciseCatalog.any((entry) => entry.muscle == widget.initialMuscle)
         ? widget.initialMuscle
         : '全部';
+    _category =
+        widget.initialCategory ??
+        (widget.selectionMode
+            ? catalogEntryForSlug(widget.currentSlug ?? '')?.category ??
+                  ExerciseCategory.strength
+            : null);
   }
 
   List<ExerciseCatalogEntry> get _results => exerciseCatalog.where((entry) {
     final matchesMuscle = _muscle == '全部' || entry.muscle == _muscle;
     final matchesEquipment =
         _equipment == null || entry.equipment == _equipment;
+    final matchesCategory = _category == null || entry.category == _category;
     final query = _query.trim().toLowerCase();
     final matchesQuery =
         query.isEmpty ||
         entry.name.toLowerCase().contains(query) ||
-        entry.equipment.label.contains(query);
-    return matchesMuscle && matchesEquipment && matchesQuery;
+        entry.sourceId.toLowerCase().contains(query) ||
+        entry.muscle.contains(query) ||
+        entry.equipment.label.contains(query) ||
+        entry.category.label.contains(query);
+    return matchesMuscle && matchesCategory && matchesEquipment && matchesQuery;
   }).toList();
 
   @override
   Widget build(BuildContext context) {
-    final muscles = <String>{'全部', ...exerciseCatalog.map((e) => e.muscle)};
+    final availableMuscles = exerciseCatalog
+        .map((entry) => entry.muscle)
+        .toSet();
+    final muscles = <String>[
+      '全部',
+      ...exerciseMuscleOrder.where(availableMuscles.contains),
+      ...availableMuscles.where(
+        (muscle) => !exerciseMuscleOrder.contains(muscle),
+      ),
+    ];
     final results = _results;
     return Scaffold(
       appBar: AppBar(
@@ -94,7 +116,7 @@ class _ExerciseLibraryScreenState extends State<ExerciseLibraryScreen> {
                                 ),
                                 SizedBox(height: 4),
                                 Text(
-                                  '按肌群和器械筛选，再看动作演示。',
+                                  '按肌群、训练类型和器械筛选，再看动作演示。',
                                   style: TextStyle(
                                     color: AppColors.muted,
                                     height: 1.4,
@@ -110,7 +132,7 @@ class _ExerciseLibraryScreenState extends State<ExerciseLibraryScreen> {
                     TextField(
                       onChanged: (value) => setState(() => _query = value),
                       decoration: const InputDecoration(
-                        hintText: '搜索动作或器械',
+                        hintText: '搜索动作、肌群或器械',
                         prefixIcon: Icon(Icons.search_rounded),
                       ),
                     ),
@@ -133,6 +155,50 @@ class _ExerciseLibraryScreenState extends State<ExerciseLibraryScreen> {
                             ),
                           )
                           .toList(),
+                    ),
+                    const SizedBox(height: 18),
+                    const _FilterTitle(
+                      icon: Icons.widgets_rounded,
+                      label: '训练类型',
+                    ),
+                    const SizedBox(height: 10),
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.only(right: 8),
+                            child: FilterChip(
+                              avatar: const Icon(Icons.auto_awesome_rounded),
+                              label: const Text('全部'),
+                              selected: _category == null,
+                              onSelected: (_) =>
+                                  setState(() => _category = null),
+                            ),
+                          ),
+                          ...ExerciseCategory.values
+                              .where(
+                                (category) => exerciseCatalog.any(
+                                  (entry) => entry.category == category,
+                                ),
+                              )
+                              .map(
+                                (category) => Padding(
+                                  padding: const EdgeInsets.only(right: 8),
+                                  child: FilterChip(
+                                    avatar: Icon(category.icon),
+                                    label: Text(category.label),
+                                    selected: _category == category,
+                                    onSelected: (_) => setState(
+                                      () => _category = _category == category
+                                          ? null
+                                          : category,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                        ],
+                      ),
                     ),
                     const SizedBox(height: 18),
                     const _FilterTitle(icon: Icons.tune_rounded, label: '器械类型'),
@@ -267,6 +333,7 @@ class ExerciseDetailScreen extends StatelessWidget {
             runSpacing: 8,
             children: [
               _Tag(icon: Icons.my_location_rounded, label: entry.muscle),
+              _Tag(icon: entry.category.icon, label: entry.category.label),
               _Tag(icon: entry.equipment.icon, label: entry.equipment.label),
               _Tag(icon: Icons.bolt_rounded, label: entry.level),
             ],
@@ -345,25 +412,105 @@ class AnimatedExercisePreview extends StatefulWidget {
 }
 
 class _AnimatedExercisePreviewState extends State<AnimatedExercisePreview> {
+  static const _frameHoldDuration = Duration(milliseconds: 1700);
+  static const _transitionDuration = Duration(milliseconds: 320);
+  static const _reverseTransitionDuration = Duration(milliseconds: 220);
+
   int _frame = 0;
   Timer? _timer;
+  bool _pausedByUser = false;
+  bool _reduceMotion = false;
+  int? _cacheWidth;
 
   @override
   void initState() {
     super.initState();
-    if (widget.entry.images.length > 1) {
-      _timer = Timer.periodic(const Duration(milliseconds: 1100), (_) {
-        if (mounted) {
-          setState(() => _frame = (_frame + 1) % widget.entry.images.length);
-        }
-      });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    final physicalWidth =
+        (MediaQuery.sizeOf(context).width *
+                MediaQuery.devicePixelRatioOf(context))
+            .round();
+    final cacheWidth = physicalWidth > 0 ? physicalWidth : null;
+    final needsPreparation = _cacheWidth != cacheWidth;
+    _reduceMotion = reduceMotion;
+    _cacheWidth = cacheWidth;
+    if (needsPreparation) {
+      _prepareFrames(cacheWidth);
     }
+    _syncTimer();
+  }
+
+  @override
+  void didUpdateWidget(covariant AnimatedExercisePreview oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.entry.slug == widget.entry.slug) return;
+    _timer?.cancel();
+    _frame = 0;
+    _pausedByUser = false;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _prepareFrames(_cacheWidth);
+    });
   }
 
   @override
   void dispose() {
     _timer?.cancel();
     super.dispose();
+  }
+
+  Future<void> _prepareFrames(int? cacheWidth) async {
+    final entry = widget.entry;
+    await Future.wait(
+      entry.images.map((path) async {
+        try {
+          await precacheImage(
+            ResizeImage.resizeIfNeeded(cacheWidth, null, AssetImage(path)),
+            context,
+            onError: (_, _) {},
+          );
+        } on Object {
+          // The image widget below owns the visible recovery state.
+        }
+      }),
+    );
+    if (!mounted || entry.slug != widget.entry.slug) return;
+  }
+
+  void _syncTimer() {
+    _timer?.cancel();
+    _timer = null;
+    if (_reduceMotion || _pausedByUser || widget.entry.images.length < 2) {
+      return;
+    }
+    _timer = Timer.periodic(_frameHoldDuration, (_) => _showNextFrame());
+  }
+
+  void _showNextFrame() {
+    if (!mounted || widget.entry.images.length < 2) return;
+    setState(() => _frame = (_frame + 1) % widget.entry.images.length);
+  }
+
+  void _showFrame(int frame) {
+    if (!mounted || frame == _frame) return;
+    setState(() => _frame = frame);
+    _syncTimer();
+  }
+
+  void _togglePlayback() {
+    if (_reduceMotion) return;
+    setState(() => _pausedByUser = !_pausedByUser);
+    _syncTimer();
+  }
+
+  String get _poseLabel {
+    if (_frame == 0) return '起始姿势';
+    if (_frame == widget.entry.images.length - 1) return '结束姿势';
+    return '动作阶段 ${_frame + 1}';
   }
 
   @override
@@ -373,43 +520,134 @@ class _AnimatedExercisePreviewState extends State<AnimatedExercisePreview> {
     child: Container(
       height: 260,
       decoration: BoxDecoration(
-        color: const Color(0xFFF0EFEA),
+        color: AppColors.backgroundRaised,
         borderRadius: BorderRadius.circular(26),
+        border: Border.all(color: AppColors.line),
       ),
       clipBehavior: Clip.antiAlias,
       child: Stack(
         fit: StackFit.expand,
         children: [
           AnimatedSwitcher(
-            duration: const Duration(milliseconds: 260),
-            child: Image.asset(
-              widget.entry.images[_frame],
-              key: ValueKey(_frame),
-              fit: BoxFit.cover,
-              gaplessPlayback: true,
+            duration: _reduceMotion ? Duration.zero : _transitionDuration,
+            reverseDuration: _reduceMotion
+                ? Duration.zero
+                : _reverseTransitionDuration,
+            switchInCurve: Curves.easeOutCubic,
+            switchOutCurve: Curves.easeInCubic,
+            layoutBuilder: (currentChild, previousChildren) => Stack(
+              fit: StackFit.expand,
+              children: [...previousChildren, ?currentChild],
+            ),
+            transitionBuilder: (child, animation) => FadeTransition(
+              opacity: animation,
+              child: ScaleTransition(
+                scale: Tween<double>(begin: 1.012, end: 1).animate(animation),
+                child: child,
+              ),
+            ),
+            child: _ExerciseAssetImage(
+              key: ValueKey('${widget.entry.slug}-$_frame'),
+              path: widget.entry.images[_frame],
+              semanticLabel: '${widget.entry.name}$_poseLabel',
+              cacheWidth: _cacheWidth,
+              fit: BoxFit.contain,
+              compact: false,
               excludeFromSemantics: true,
             ),
           ),
           Positioned(
             left: 12,
             top: 12,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              decoration: BoxDecoration(
+            child: _PreviewBadge(
+              icon: Icons.play_circle_fill_rounded,
+              label: '双阶段动作演示',
+            ),
+          ),
+          if (widget.entry.images.length > 1)
+            Positioned(
+              right: 10,
+              top: 10,
+              child: Material(
                 color: const Color(0xD911130D),
                 borderRadius: BorderRadius.circular(999),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (!_reduceMotion)
+                      IconButton(
+                        tooltip: _pausedByUser ? '继续播放' : '暂停播放',
+                        onPressed: _togglePlayback,
+                        icon: Icon(
+                          _pausedByUser
+                              ? Icons.play_arrow_rounded
+                              : Icons.pause_rounded,
+                          color: AppColors.lime,
+                        ),
+                      ),
+                    IconButton(
+                      tooltip: '显示起始姿势',
+                      onPressed: _frame == 0 ? null : () => _showFrame(0),
+                      icon: const Icon(Icons.first_page_rounded),
+                    ),
+                    IconButton(
+                      tooltip: '显示结束姿势',
+                      onPressed: _frame == widget.entry.images.length - 1
+                          ? null
+                          : () => _showFrame(widget.entry.images.length - 1),
+                      icon: const Icon(Icons.last_page_rounded),
+                    ),
+                  ],
+                ),
               ),
-              child: const Row(
+            ),
+          Positioned(
+            left: 12,
+            right: 12,
+            bottom: 12,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+              decoration: BoxDecoration(
+                color: const Color(0xD911130D),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Row(
                 children: [
-                  Icon(
-                    Icons.play_circle_fill_rounded,
-                    size: 16,
-                    color: AppColors.lime,
+                  Expanded(
+                    child: Text(
+                      _poseLabel,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
                   ),
-                  SizedBox(width: 5),
+                  ...List.generate(
+                    widget.entry.images.length,
+                    (index) => AnimatedContainer(
+                      duration: _reduceMotion
+                          ? Duration.zero
+                          : const Duration(milliseconds: 220),
+                      curve: Curves.easeOutCubic,
+                      width: index == _frame ? 20 : 7,
+                      height: 7,
+                      margin: const EdgeInsets.only(left: 6),
+                      decoration: BoxDecoration(
+                        color: index == _frame
+                            ? AppColors.lime
+                            : AppColors.muted.withValues(alpha: 0.45),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
                   Text(
-                    '双阶段演示',
-                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800),
+                    '${_frame + 1}/${widget.entry.images.length}',
+                    style: const TextStyle(
+                      color: AppColors.muted,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
                 ],
               ),
@@ -417,6 +655,146 @@ class _AnimatedExercisePreviewState extends State<AnimatedExercisePreview> {
           ),
         ],
       ),
+    ),
+  );
+}
+
+class _ExerciseAssetImage extends StatelessWidget {
+  const _ExerciseAssetImage({
+    super.key,
+    required this.path,
+    required this.semanticLabel,
+    required this.fit,
+    required this.compact,
+    this.cacheWidth,
+    this.excludeFromSemantics = false,
+  });
+
+  final String path;
+  final String semanticLabel;
+  final BoxFit fit;
+  final bool compact;
+  final int? cacheWidth;
+  final bool excludeFromSemantics;
+
+  @override
+  Widget build(BuildContext context) => Image.asset(
+    path,
+    fit: fit,
+    alignment: Alignment.center,
+    cacheWidth: cacheWidth,
+    gaplessPlayback: true,
+    excludeFromSemantics: excludeFromSemantics,
+    semanticLabel: excludeFromSemantics ? null : semanticLabel,
+    frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+      if (wasSynchronouslyLoaded) return child;
+      return AnimatedSwitcher(
+        duration: MediaQuery.disableAnimationsOf(context)
+            ? Duration.zero
+            : const Duration(milliseconds: 180),
+        switchInCurve: Curves.easeOutCubic,
+        child: frame == null
+            ? _ExerciseImagePlaceholder(
+                key: const ValueKey('loading'),
+                compact: compact,
+              )
+            : KeyedSubtree(key: const ValueKey('loaded'), child: child),
+      );
+    },
+    errorBuilder: (_, _, _) => _ExerciseImageFallback(compact: compact),
+  );
+}
+
+class _ExerciseImagePlaceholder extends StatelessWidget {
+  const _ExerciseImagePlaceholder({super.key, required this.compact});
+
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) => ColoredBox(
+    color: AppColors.backgroundRaised,
+    child: Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.photo_size_select_actual_outlined,
+            size: compact ? 22 : 34,
+            color: AppColors.muted.withValues(alpha: 0.55),
+          ),
+          if (!compact) ...[
+            const SizedBox(height: 8),
+            const Text(
+              '正在准备示范',
+              style: TextStyle(
+                color: AppColors.muted,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ],
+      ),
+    ),
+  );
+}
+
+class _ExerciseImageFallback extends StatelessWidget {
+  const _ExerciseImageFallback({required this.compact});
+
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) => ColoredBox(
+    color: AppColors.panelSoft,
+    child: Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.image_not_supported_rounded,
+            size: compact ? 23 : 38,
+            color: AppColors.muted,
+          ),
+          SizedBox(height: compact ? 3 : 8),
+          Text(
+            compact ? '暂无封面' : '示范图暂不可用',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: AppColors.muted,
+              fontSize: compact ? 9 : 13,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _PreviewBadge extends StatelessWidget {
+  const _PreviewBadge({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+    decoration: BoxDecoration(
+      color: const Color(0xD911130D),
+      borderRadius: BorderRadius.circular(999),
+    ),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 16, color: AppColors.lime),
+        const SizedBox(width: 5),
+        Text(
+          label,
+          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800),
+        ),
+      ],
     ),
   );
 }
@@ -435,89 +813,115 @@ class _ExerciseCard extends StatelessWidget {
   final VoidCallback? onSelect;
 
   @override
-  Widget build(BuildContext context) => Material(
-    color: selected ? const Color(0xFF252E1B) : AppColors.panel,
-    borderRadius: BorderRadius.circular(20),
-    child: InkWell(
-      onTap: onTap,
+  Widget build(BuildContext context) {
+    final thumbnailCacheWidth = (96 * MediaQuery.devicePixelRatioOf(context))
+        .round();
+    return Material(
+      color: selected ? const Color(0xFF252E1B) : AppColors.panel,
       borderRadius: BorderRadius.circular(20),
-      child: Container(
-        padding: const EdgeInsets.all(10),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: selected ? AppColors.lime : AppColors.line),
-        ),
-        child: Row(
-          children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(15),
-              child: Image.asset(
-                entry.images.first,
-                width: 96,
-                height: 82,
-                fit: BoxFit.cover,
-                alignment: Alignment.topCenter,
-                semanticLabel: '${entry.name}起始姿势',
-              ),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(20),
+        child: Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: selected ? AppColors.lime : AppColors.line,
             ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    entry.name,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                  const SizedBox(height: 7),
-                  Row(
+          ),
+          child: Row(
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(15),
+                child: SizedBox(
+                  width: 96,
+                  height: 82,
+                  child: Stack(
+                    fit: StackFit.expand,
                     children: [
-                      Icon(
-                        entry.equipment.icon,
-                        size: 15,
-                        color: _equipmentColor(entry.equipment),
+                      _ExerciseAssetImage(
+                        path: entry.images.first,
+                        semanticLabel: '${entry.name}起始姿势',
+                        cacheWidth: thumbnailCacheWidth,
+                        fit: BoxFit.cover,
+                        compact: true,
                       ),
-                      const SizedBox(width: 5),
-                      Text(
-                        '${entry.equipment.label} · ${entry.level}',
-                        style: const TextStyle(
-                          color: AppColors.muted,
-                          fontSize: 11,
+                      Positioned(
+                        left: 6,
+                        bottom: 6,
+                        child: _PreviewBadge(
+                          icon: Icons.play_arrow_rounded,
+                          label: '${entry.images.length} 帧',
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 6),
-                  Text(
-                    '${entry.repsMin}–${entry.repsMax} 次 · 休息 ${entry.restSeconds} 秒',
-                    style: const TextStyle(
-                      color: AppColors.lime,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            if (onSelect != null)
-              IconButton(
-                tooltip: selected ? '当前动作' : '选择 ${entry.name}',
-                onPressed: selected ? null : onSelect,
-                icon: Icon(
-                  selected
-                      ? Icons.check_circle_rounded
-                      : Icons.add_circle_rounded,
-                  color: selected ? AppColors.lime : AppColors.sky,
                 ),
               ),
-          ],
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      entry.name,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 7),
+                    Row(
+                      children: [
+                        Icon(
+                          entry.equipment.icon,
+                          size: 15,
+                          color: _equipmentColor(entry.equipment),
+                        ),
+                        const SizedBox(width: 5),
+                        Expanded(
+                          child: Text(
+                            '${entry.equipment.label} · ${entry.category.label} · ${entry.level}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: AppColors.muted,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      '${entry.repsMin}–${entry.repsMax} 次 · 休息 ${entry.restSeconds} 秒',
+                      style: const TextStyle(
+                        color: AppColors.lime,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (onSelect != null)
+                IconButton(
+                  tooltip: selected ? '当前动作' : '选择 ${entry.name}',
+                  onPressed: selected ? null : onSelect,
+                  icon: Icon(
+                    selected
+                        ? Icons.check_circle_rounded
+                        : Icons.add_circle_rounded,
+                    color: selected ? AppColors.lime : AppColors.sky,
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 class _MascotBadge extends StatelessWidget {
@@ -659,4 +1063,11 @@ Color _equipmentColor(ExerciseEquipment equipment) => switch (equipment) {
   ExerciseEquipment.bodyweight => AppColors.lime,
   ExerciseEquipment.cable => AppColors.orange,
   ExerciseEquipment.cardio => AppColors.sky,
+  ExerciseEquipment.bands => AppColors.lime,
+  ExerciseEquipment.ezBar => AppColors.violet,
+  ExerciseEquipment.exerciseBall => AppColors.coral,
+  ExerciseEquipment.foamRoller => AppColors.sky,
+  ExerciseEquipment.kettlebell => AppColors.orange,
+  ExerciseEquipment.medicineBall => AppColors.coral,
+  ExerciseEquipment.other => AppColors.muted,
 };

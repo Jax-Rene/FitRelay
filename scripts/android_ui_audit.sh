@@ -183,9 +183,9 @@ write_report() {
     print -r -- '| --- | --- | --- |'
     print -r -- '| ![](11_plan.png) | ![](12_workout.png) | ![](13_summary.png) |'
     print -r -- ''
-    print -r -- '| 动作库 | 器械筛选 | 动作详情 |'
-    print -r -- '| --- | --- | --- |'
-    print -r -- '| ![](10_library.png) | ![](10_library_dumbbell.png) | ![](10_exercise_detail.png) |'
+    print -r -- '| 动作库 | 器械筛选 | 动作详情：起始姿势 | 动作详情：结束姿势 |'
+    print -r -- '| --- | --- | --- | --- |'
+    print -r -- '| ![](10_library.png) | ![](10_library_dumbbell.png) | ![](10_exercise_detail.png) | ![](10_exercise_detail_end.png) |'
     print -r -- ''
     print -r -- '| 零组保护 | 完成后首页 | 完成记录即时打开 |'
     print -r -- '| --- | --- | --- |'
@@ -268,16 +268,22 @@ capture 10_home
 
 tap_desc '动作库'
 assert_desc exercise_library '想练哪里？'
-assert_desc exercise_library_count '找到 12 个动作'
+assert_desc exercise_library_count '找到 873 个动作'
 capture 10_library
 tap_desc '哑铃'
-assert_desc exercise_library_dumbbell '找到 3 个动作'
+assert_desc exercise_library_dumbbell '找到 123 个动作'
 capture 10_library_dumbbell
 tap_desc '哑铃卧推'
 assert_desc exercise_detail '动作步骤'
+tap_desc '暂停播放'
+tap_desc '显示起始姿势'
+assert_desc exercise_detail_first_frame '哑铃卧推动作演示，第 1 帧'
 capture 10_exercise_detail
+tap_desc '显示结束姿势'
+assert_desc exercise_detail_second_frame '哑铃卧推动作演示，第 2 帧'
+capture 10_exercise_detail_end
 tap_desc '返回动作库'
-assert_desc exercise_library_return '找到 3 个动作'
+assert_desc exercise_library_return '找到 123 个动作'
 "$ADB" shell input keyevent 4
 assert_desc home_after_library '今天怎么练？'
 

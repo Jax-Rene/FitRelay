@@ -54,8 +54,9 @@ ThemeData get goldenTheme => AppTheme.dark.copyWith(
 Future<void> renderScreen(
   WidgetTester tester,
   Widget screen,
-  String goldenName,
-) async {
+  String goldenName, {
+  bool waitForAssets = false,
+}) async {
   await tester.binding.setSurfaceSize(const Size(430, 900));
   await tester.pumpWidget(
     MaterialApp(
@@ -65,6 +66,12 @@ Future<void> renderScreen(
     ),
   );
   await tester.pump(const Duration(milliseconds: 300));
+  if (waitForAssets) {
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 100)),
+    );
+    await tester.pumpAndSettle();
+  }
   await expectLater(
     find.byKey(const Key('capture')),
     matchesGoldenFile('goldens/$goldenName.png'),
@@ -118,7 +125,7 @@ void main() {
     );
     await tester.runAsync(() async {
       await precacheImage(
-        const AssetImage('assets/branding/logo.png'),
+        const AssetImage('assets/branding/logo.webp'),
         tester.element(find.byType(OnboardingScreen)),
       );
     });
@@ -185,6 +192,7 @@ void main() {
       tester,
       const ExerciseLibraryScreen(),
       '14_exercise_library',
+      waitForAssets: true,
     );
   });
 
@@ -193,6 +201,7 @@ void main() {
       tester,
       ExerciseDetailScreen(entry: exerciseCatalog.first, selectionMode: true),
       '15_exercise_detail',
+      waitForAssets: true,
     );
   });
 
@@ -210,6 +219,10 @@ void main() {
     );
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(FilterChip, '哑铃'));
+    await tester.pumpAndSettle();
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 100)),
+    );
     await tester.pumpAndSettle();
     await expectLater(
       find.byKey(const Key('capture')),

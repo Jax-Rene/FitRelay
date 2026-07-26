@@ -242,7 +242,7 @@ class _WelcomePage extends StatelessWidget {
         ClipRRect(
           borderRadius: BorderRadius.circular(18),
           child: Image.asset(
-            'assets/branding/logo.png',
+            'assets/branding/logo.webp',
             width: 62,
             height: 62,
             fit: BoxFit.cover,

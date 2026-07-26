@@ -33,7 +33,7 @@ void main() {
         jsonEncode({
           'result_type': 'workout_plan',
           'request_id': 'req_test',
-          'source': 'deterministic_fallback',
+          'source': 'ai',
           'plan': {
             'plan_id': 'plan_test',
             'title': '恢复型全身训练',
@@ -81,6 +81,7 @@ void main() {
   test('uses saved onboarding context in plan requests', () async {
     SharedPreferences.setMockInitialValues({
       'access_token': 'abcdefghijklmnopqrstuvwxyz1234567890',
+      'access_token_origin': 'http://api.test',
       'profile_experience': '比较熟悉',
       'profile_limitation': '膝盖',
       'profile_note': '想增肌，偏好器械，不喜欢跑步。',
@@ -92,7 +93,7 @@ void main() {
         jsonEncode({
           'result_type': 'workout_plan',
           'request_id': 'req_profile',
-          'source': 'deterministic_fallback',
+          'source': 'repaired_ai',
           'plan': {
             'plan_id': 'plan_profile',
             'title': '个性化训练',
@@ -113,6 +114,7 @@ void main() {
           },
         }),
         200,
+        headers: {'content-type': 'application/json; charset=utf-8'},
       );
     });
 
@@ -130,4 +132,59 @@ void main() {
       containsAll(['machine_training', 'avoid_running']),
     );
   });
+
+  test(
+    'rejects a deterministic server fallback instead of hiding it',
+    () async {
+      SharedPreferences.setMockInitialValues({
+        'access_token': 'abcdefghijklmnopqrstuvwxyz1234567890',
+        'access_token_origin': 'https://api.test',
+      });
+      Object? reportedError;
+      final client = MockClient(
+        (_) async => http.Response(
+          jsonEncode({
+            'result_type': 'workout_plan',
+            'request_id': 'req_fallback',
+            'source': 'deterministic_fallback',
+            'plan': {
+              'plan_id': 'plan_fallback',
+              'title': '固定计划',
+              'goal_summary': '固定内容',
+              'coach_message': '固定内容',
+              'estimated_minutes': 30,
+              'exercises': [
+                {
+                  'exercise_slug': 'leg_press',
+                  'sets': 3,
+                  'reps_min': 10,
+                  'reps_max': 12,
+                  'rest_seconds': 90,
+                  'cue': '保持稳定',
+                },
+              ],
+            },
+          }),
+          200,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        ),
+      );
+
+      await expectLater(
+        ApiClient(
+          client: client,
+          baseUrl: 'https://api.test',
+          onFallback: (error) => reportedError = error,
+        ).generatePlan('今天 30 分钟'),
+        throwsA(
+          isA<ApiException>().having(
+            (error) => error.message,
+            'message',
+            contains('未通过安全校验'),
+          ),
+        ),
+      );
+      expect(reportedError, isA<ApiException>());
+    },
+  );
 }

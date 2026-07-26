@@ -4,19 +4,22 @@ set -euo pipefail
 ROOT="${0:A:h:h}"
 GO="$HOME/development/go/bin/go"
 
-echo "[1/5] Go API tests"
+echo "[1/6] Exercise catalog and local media"
+"$ROOT/scripts/import_exercise_library.py" --check
+
+echo "[2/6] Go API tests"
 (cd "$ROOT/services/api" && "$GO" test ./...)
 
-echo "[2/5] Go API build"
+echo "[3/6] Go API build"
 (cd "$ROOT/services/api" && "$GO" build -o bin/api ./cmd/api)
 
-echo "[3/5] Flutter static analysis"
+echo "[4/6] Flutter static analysis"
 (cd "$ROOT/mobile" && ./tool/flutterw analyze)
 
-echo "[4/5] Flutter unit, widget and golden tests"
+echo "[5/6] Flutter unit, widget and golden tests"
 (cd "$ROOT/mobile" && ./tool/flutterw test)
 
-echo "[5/5] API contract smoke test"
+echo "[6/6] API contract smoke test"
 PORT=18080
 DB="$ROOT/services/api/data/self-test.db"
 rm -f "$DB"

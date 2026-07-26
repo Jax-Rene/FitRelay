@@ -14,7 +14,7 @@ import (
 
 const deepSeekSystemPrompt = `你是随练 AI 的训练计划编排器。只输出 JSON，不要输出 Markdown 或解释。
 安全规则：只能使用输入中的动作 slug；不得诊断疾病；有疼痛风险时不要自行给康复处方；不得虚构训练历史；训练量、时长和重量必须保守。
-生成或调整计划时，顶层必须直接是计划对象，只允许 plan_id、title、session_type、goal_summary、coach_message、estimated_minutes、intensity_guidance、exercises 这 8 个字段；不要包装 plan，不要添加 summary、reasoning 或其他字段。每个 exercise 只允许 item_id、order_index、block_type、exercise_slug、sets、reps_min、reps_max、target_duration_seconds、target_rir、rest_seconds、suggested_load_kg、load_basis、cue、alternative_slugs；力量动作需要 reps_min、reps_max，有氧动作需要 target_duration_seconds，不适用的可选字段直接省略。
+生成或调整计划时，顶层必须直接是计划对象，只允许 plan_id、title、session_type、goal_summary、coach_message、estimated_minutes、intensity_guidance、exercises 这 8 个字段；不要包装 plan，不要添加 summary、reasoning 或其他字段。session_type 只能是 recovery_full_body、full_body、upper_body、lower_body、mixed、cardio_support 之一。estimated_minutes 不得超过输入的 available_minutes，exercises 必须为 1 至 8 个且总组数不得超过 20。每个 exercise 只允许 item_id、order_index、block_type、exercise_slug、sets、reps_min、reps_max、target_duration_seconds、target_rir、rest_seconds、suggested_load_kg、load_basis、cue、alternative_slugs；block_type 只能是 warmup、strength、core、cardio、cooldown 之一，主训练力量动作也必须使用 strength，禁止使用 main。sets 必须为 1 至 5，target_rir 必须为 0 至 6，rest_seconds 必须为 0 至 300。load_basis 只能是 explore、previous_session、user_input、conservative_adjustment 之一。力量动作需要 1 至 30 范围内的 reps_min、reps_max，有氧动作需要 60 至 3600 范围内的 target_duration_seconds，不适用的可选字段直接省略。
 生成总结时，顶层只允许 headline、factual_message、grounded_facts 这 3 个字段，并且 factual_message 和 grounded_facts 只能逐字使用输入的 allowed_facts。`
 
 type deepSeekClient struct {
@@ -167,13 +167,25 @@ func validateAIPlan(plan *workoutPlan, maxMinutes int, allowedSlugs map[string]b
 	if len(plan.Title) > 80 || len(plan.GoalSummary) > 300 || len(plan.CoachMessage) > 300 || len(plan.IntensityGuidance) > 300 {
 		return false, errors.New("plan text exceeds safety limits")
 	}
-	if plan.EstimatedMinutes < 5 || plan.EstimatedMinutes > maxMinutes {
-		return false, errors.New("plan duration exceeds the available time")
-	}
 	if len(plan.Exercises) == 0 || len(plan.Exercises) > 8 {
 		return false, errors.New("invalid exercise count")
 	}
 	repaired := false
+	if plan.EstimatedMinutes < 5 {
+		return false, errors.New("plan duration is invalid")
+	}
+	if plan.EstimatedMinutes > maxMinutes {
+		plan.EstimatedMinutes = maxMinutes
+		repaired = true
+	}
+	sessionType, ok := normalizeSessionType(plan.SessionType)
+	if !ok {
+		return false, errors.New("invalid session type")
+	}
+	if sessionType != plan.SessionType {
+		plan.SessionType = sessionType
+		repaired = true
+	}
 	totalSets := 0
 	plan.PlanID = "plan_" + randomToken(10)
 	for index := range plan.Exercises {
@@ -189,24 +201,58 @@ func validateAIPlan(plan *workoutPlan, maxMinutes int, allowedSlugs map[string]b
 			repaired = true
 		}
 		exercise.ItemID = fmt.Sprintf("item_%d", index+1)
-		validBlockTypes := map[string]bool{"warmup": true, "strength": true, "core": true, "cardio": true, "cooldown": true}
-		if !validBlockTypes[exercise.BlockType] {
+		blockType, ok := normalizeBlockType(exercise.BlockType)
+		if !ok {
 			return false, errors.New("invalid exercise block type")
 		}
-		if exercise.Sets < 1 || exercise.Sets > 5 || exercise.TargetRIR < 0 || exercise.TargetRIR > 6 || exercise.RestSeconds < 0 || exercise.RestSeconds > 300 {
-			return false, errors.New("exercise volume is outside safety limits")
+		if blockType != exercise.BlockType {
+			exercise.BlockType = blockType
+			repaired = true
+		}
+		loadBasis := normalizeLoadBasis(exercise.LoadBasis)
+		if loadBasis != exercise.LoadBasis {
+			exercise.LoadBasis = loadBasis
+			repaired = true
+		}
+		if exercise.Sets < 1 {
+			exercise.Sets = 1
+			repaired = true
+		} else if exercise.Sets > 5 {
+			exercise.Sets = 5
+			repaired = true
+		}
+		if exercise.TargetRIR < 0 || exercise.TargetRIR > 6 {
+			exercise.TargetRIR = 3
+			repaired = true
+		}
+		if exercise.RestSeconds < 0 {
+			exercise.RestSeconds = 0
+			repaired = true
+		} else if exercise.RestSeconds > 300 {
+			exercise.RestSeconds = 300
+			repaired = true
 		}
 		if exercise.BlockType == "strength" && (exercise.RepsMin < 1 || exercise.RepsMax < exercise.RepsMin || exercise.RepsMax > 30) {
-			return false, errors.New("strength repetition range is invalid")
+			exercise.RepsMin = 8
+			exercise.RepsMax = 12
+			repaired = true
 		}
 		if exercise.BlockType == "cardio" && (exercise.TargetDurationSeconds < 60 || exercise.TargetDurationSeconds > 3600) {
-			return false, errors.New("cardio duration is invalid")
+			exercise.TargetDurationSeconds = maxMinutes * 60
+			if exercise.TargetDurationSeconds > 900 {
+				exercise.TargetDurationSeconds = 900
+			}
+			repaired = true
 		}
+		alternatives := make([]string, 0, len(exercise.AlternativeSlugs))
 		for _, alternative := range exercise.AlternativeSlugs {
-			if !allowedSlugs[alternative] {
-				return false, fmt.Errorf("alternative %q is not in the client catalog", alternative)
+			if allowedSlugs[alternative] && alternative != exercise.ExerciseSlug {
+				alternatives = append(alternatives, alternative)
+			} else {
+				repaired = true
 			}
 		}
+		exercise.AlternativeSlugs = alternatives
 		if exercise.SuggestedLoadKG != nil {
 			lastLoad, known := knownLoads[exercise.ExerciseSlug]
 			if !known || *exercise.SuggestedLoadKG <= 0 {
@@ -227,9 +273,56 @@ func validateAIPlan(plan *workoutPlan, maxMinutes int, allowedSlugs map[string]b
 		totalSets += exercise.Sets
 	}
 	if totalSets > 20 {
-		return false, errors.New("total set count exceeds safety limits")
+		for index := len(plan.Exercises) - 1; index >= 0 && totalSets > 20; index-- {
+			exercise := &plan.Exercises[index]
+			reducible := exercise.Sets - 1
+			if reducible <= 0 {
+				continue
+			}
+			reduction := totalSets - 20
+			if reduction > reducible {
+				reduction = reducible
+			}
+			exercise.Sets -= reduction
+			totalSets -= reduction
+		}
+		repaired = true
 	}
 	return repaired, nil
+}
+
+func normalizeSessionType(value string) (string, bool) {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	switch normalized {
+	case "recovery_full_body", "full_body", "upper_body", "lower_body", "mixed", "cardio_support":
+		return normalized, true
+	case "workout", "general", "general_workout":
+		return "mixed", true
+	default:
+		return "", false
+	}
+}
+
+func normalizeBlockType(value string) (string, bool) {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	switch normalized {
+	case "warmup", "strength", "core", "cardio", "cooldown":
+		return normalized, true
+	case "main", "main_workout", "resistance", "resistance_training", "weights":
+		return "strength", true
+	default:
+		return "", false
+	}
+}
+
+func normalizeLoadBasis(value string) string {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	switch normalized {
+	case "explore", "previous_session", "user_input", "conservative_adjustment":
+		return normalized
+	default:
+		return "explore"
+	}
 }
 
 func validateAISummary(summary aiSummary, allowedFacts []string) error {

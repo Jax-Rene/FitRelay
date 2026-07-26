@@ -101,7 +101,7 @@ jobs:
 
       - name: Build signed release APKs
         env:
-          API_BASE_URL: ${{ vars.FITRELAY_API_BASE_URL || 'http://43.155.164.131' }}
+          API_BASE_URL: ${{ vars.FITRELAY_API_BASE_URL || 'https://fitrelay-api.43-155-164-131.sslip.io' }}
         run: >-
           flutter build apk
           --release

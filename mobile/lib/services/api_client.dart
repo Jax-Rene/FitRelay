@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
@@ -7,13 +8,16 @@ import '../models/workout_record.dart';
 import '../models/workout_plan.dart';
 
 class ApiClient {
+  static const productionBaseUrl =
+      'https://fitrelay-api.43-155-164-131.sslip.io';
+
   ApiClient({http.Client? client, String? baseUrl, this.onFallback})
     : _client = client ?? http.Client(),
       baseUrl =
           baseUrl ??
           const String.fromEnvironment(
             'API_BASE_URL',
-            defaultValue: 'http://127.0.0.1:8080',
+            defaultValue: productionBaseUrl,
           );
 
   final http.Client _client;
@@ -23,22 +27,26 @@ class ApiClient {
   Future<String> _token() async {
     final preferences = await SharedPreferences.getInstance();
     final cached = preferences.getString('access_token');
-    if (cached != null) return cached;
-    final response = await _client.post(
-      Uri.parse('$baseUrl/v1/installations'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({
-        'invite_code': 'EARLY-ACCESS-001',
-        'platform': 'android',
-        'app_version': '0.1.0',
-      }),
-    );
+    final cachedOrigin = preferences.getString('access_token_origin');
+    if (cached != null && cachedOrigin == baseUrl) return cached;
+    final response = await _client
+        .post(
+          Uri.parse('$baseUrl/v1/installations'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({
+            'invite_code': 'EARLY-ACCESS-001',
+            'platform': 'android',
+            'app_version': '0.1.0',
+          }),
+        )
+        .timeout(const Duration(seconds: 25));
     if (response.statusCode != 201) {
       throw ApiException('无法初始化客户端', response.statusCode);
     }
     final payload = jsonDecode(response.body) as Map<String, dynamic>;
     final token = payload['access_token'] as String;
     await preferences.setString('access_token', token);
+    await preferences.setString('access_token_origin', baseUrl);
     return token;
   }
 
@@ -48,41 +56,48 @@ class ApiClient {
       final preferences = await SharedPreferences.getInstance();
       final profile = _profileContext(preferences);
       final history = await WorkoutHistoryStore().load();
-      final response = await _client.post(
-        Uri.parse('$baseUrl/v1/coach/plans'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-        body: jsonEncode({
-          'request_id': 'req_${DateTime.now().microsecondsSinceEpoch}',
-          'locale': 'zh-CN',
-          'timezone': 'Asia/Shanghai',
-          'catalog_version': 1,
-          'profile': profile,
-          'checkin': {
-            'raw_text': rawText,
-            'available_minutes': _minutesFrom(rawText),
-            'energy_level': 3,
-            'days_since_last_workout': _daysSinceLastWorkout(history),
-            'pain': [],
-            'wanted_focus': ['full_body'],
-            'avoided_focus': [],
-          },
-          'muscle_states': [],
-          'exercise_capabilities': [],
-          'available_exercise_slugs': exerciseNames.keys.toList(),
-        }),
-      );
+      final response = await _client
+          .post(
+            Uri.parse('$baseUrl/v1/coach/plans'),
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer $token',
+            },
+            body: jsonEncode({
+              'request_id': 'req_${DateTime.now().microsecondsSinceEpoch}',
+              'locale': 'zh-CN',
+              'timezone': 'Asia/Shanghai',
+              'catalog_version': 1,
+              'profile': profile,
+              'checkin': {
+                'raw_text': rawText,
+                'available_minutes': _minutesFrom(rawText),
+                'energy_level': 3,
+                'days_since_last_workout': _daysSinceLastWorkout(history),
+                'pain': [],
+                'wanted_focus': ['full_body'],
+                'avoided_focus': [],
+              },
+              'muscle_states': [],
+              'exercise_capabilities': [],
+              'available_exercise_slugs': exerciseNames.keys.toList(),
+            }),
+          )
+          .timeout(const Duration(seconds: 30));
       if (response.statusCode != 200) {
         throw ApiException('计划生成失败', response.statusCode);
       }
-      return WorkoutPlan.fromEnvelope(
+      final plan = WorkoutPlan.fromEnvelope(
         jsonDecode(response.body) as Map<String, dynamic>,
       );
+      if (plan.source != 'ai' && plan.source != 'repaired_ai') {
+        throw const ApiException('AI 生成结果未通过安全校验，请重试', 503);
+      }
+      return plan;
     } catch (error) {
       onFallback?.call(error);
-      return fallbackPlan(_minutesFrom(rawText));
+      if (error is ApiException) rethrow;
+      throw const ApiException('暂时无法连接 AI 教练，请检查网络后重试', 0);
     }
   }
 
@@ -214,6 +229,9 @@ class ApiException implements Exception {
   const ApiException(this.message, this.statusCode);
   final String message;
   final int statusCode;
+
+  @override
+  String toString() => message;
 }
 
 WorkoutPlan fallbackPlan(int minutes) {

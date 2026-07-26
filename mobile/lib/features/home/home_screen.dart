@@ -17,11 +17,13 @@ class HomeScreen extends StatefulWidget {
     this.date,
     this.onLogout,
     this.environmentService,
+    this.apiClient,
   });
 
   final DateTime? date;
   final Future<void> Function()? onLogout;
   final EnvironmentService? environmentService;
+  final ApiClient? apiClient;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -40,6 +42,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   late final EnvironmentService _environmentService =
       widget.environmentService ?? LiveEnvironmentService();
+  late final ApiClient _apiClient = widget.apiClient ?? ApiClient();
 
   @override
   void initState() {
@@ -97,13 +100,33 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _generate() async {
     HapticFeedback.selectionClick();
     setState(() => _loading = true);
-    final plan = await ApiClient().generatePlan(_controller.text);
-    if (!mounted) return;
-    setState(() => _loading = false);
-    await Navigator.of(
-      context,
-    ).push(MaterialPageRoute<void>(builder: (_) => PlanScreen(plan: plan)));
-    await _loadRecords();
+    try {
+      final plan = await _apiClient.generatePlan(_controller.text);
+      if (!mounted) return;
+      setState(() => _loading = false);
+      await Navigator.of(
+        context,
+      ).push(MaterialPageRoute<void>(builder: (_) => PlanScreen(plan: plan)));
+      await _loadRecords();
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(error.message),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('AI 计划生成失败，请稍后重试'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
   }
 
   Future<void> _openRecord(WorkoutRecord record) async {

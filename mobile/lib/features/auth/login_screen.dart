@@ -29,7 +29,7 @@ class _LoginScreenState extends State<LoginScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Image.asset('assets/branding/logo.png', width: 72, height: 72),
+            Image.asset('assets/branding/logo.webp', width: 72, height: 72),
             const Spacer(),
             const Text(
               '每次来，\n都知道怎么练。',

@@ -1,9 +1,10 @@
-:80 {
+fitrelay-api.43-155-164-131.sslip.io {
     encode zstd gzip
 
     reverse_proxy 127.0.0.1:18080
 
     header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
         X-Content-Type-Options "nosniff"
         Referrer-Policy "no-referrer"
     }
