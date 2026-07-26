@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:suilian_ai/features/auth/login_screen.dart';
 import 'package:suilian_ai/features/exercise_library/exercise_library_screen.dart';
 import 'package:suilian_ai/features/home/home_screen.dart';
 import 'package:suilian_ai/features/onboarding/onboarding_screen.dart';
@@ -11,6 +12,7 @@ import 'package:suilian_ai/features/summary/summary_screen.dart';
 import 'package:suilian_ai/features/workout/workout_screen.dart';
 import 'package:suilian_ai/models/exercise_catalog.dart';
 import 'package:suilian_ai/services/api_client.dart';
+import 'package:suilian_ai/services/environment_service.dart';
 import 'package:suilian_ai/theme/app_theme.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -98,6 +100,10 @@ void main() {
 
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
+  testWidgets('login screenshot', (tester) async {
+    await renderScreen(tester, LoginScreen(onLogin: () async {}), '00_login');
+  });
+
   testWidgets('complete onboarding screenshots', (tester) async {
     await tester.binding.setSurfaceSize(const Size(430, 900));
     await tester.pumpWidget(
@@ -130,15 +136,17 @@ void main() {
       await tester.tap(find.text('继续  →'));
       await captureCurrent(tester, name);
     }
-    await tester.tap(find.text('按住说话'));
-    await tester.pump(const Duration(milliseconds: 1200));
-    await captureCurrent(tester, '09_voice_recorded');
+    await tester.enterText(find.byType(TextField), '想增肌，偏好器械，不喜欢跑步。');
+    await captureCurrent(tester, '09_note_filled');
   });
 
   testWidgets('home screenshot', (tester) async {
     await renderScreen(
       tester,
-      HomeScreen(date: DateTime(2026, 7, 13)),
+      HomeScreen(
+        date: DateTime(2026, 7, 13),
+        environmentService: _GoldenEnvironmentService(),
+      ),
       '10_home',
     );
   });
@@ -161,6 +169,7 @@ void main() {
       const SummaryScreen(
         completedSets: 9,
         durationSeconds: 2400,
+        saveRecord: false,
         completedSetsByExercise: {
           'leg_press': 3,
           'machine_chest_press': 3,
@@ -207,4 +216,17 @@ void main() {
       matchesGoldenFile('goldens/16_exercise_library_dumbbell.png'),
     );
   });
+}
+
+class _GoldenEnvironmentService implements EnvironmentService {
+  @override
+  Future<EnvironmentSnapshot?> cached() async => null;
+
+  @override
+  Future<EnvironmentSnapshot> refresh() async => EnvironmentSnapshot(
+    locationLabel: '上海市 · 徐汇区',
+    weatherLabel: '多云 29°',
+    humidity: 68,
+    updatedAt: DateTime(2026, 7, 13, 12),
+  );
 }

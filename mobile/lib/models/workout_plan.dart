@@ -19,6 +19,26 @@ class WorkoutExercise {
   final double loadKg;
   final String cue;
 
+  WorkoutExercise copyWith({
+    String? slug,
+    String? name,
+    int? sets,
+    int? repsMin,
+    int? repsMax,
+    int? restSeconds,
+    double? loadKg,
+    String? cue,
+  }) => WorkoutExercise(
+    slug: slug ?? this.slug,
+    name: name ?? this.name,
+    sets: sets ?? this.sets,
+    repsMin: repsMin ?? this.repsMin,
+    repsMax: repsMax ?? this.repsMax,
+    restSeconds: restSeconds ?? this.restSeconds,
+    loadKg: loadKg ?? this.loadKg,
+    cue: cue ?? this.cue,
+  );
+
   factory WorkoutExercise.fromJson(Map<String, dynamic> json) {
     final slug = json['exercise_slug'] as String;
     return WorkoutExercise(

@@ -1,6 +1,5 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../models/user_profile.dart';
 import '../../theme/app_theme.dart';
@@ -17,14 +16,13 @@ class OnboardingScreen extends StatefulWidget {
 class _OnboardingScreenState extends State<OnboardingScreen> {
   static const _totalPages = 8;
   final _controller = PageController();
+  final _noteController = TextEditingController();
   final _profile = UserProfile();
   int _page = 0;
-  bool _listening = false;
-  bool _recorded = false;
 
   void _next() {
     if (_page == _totalPages - 1) {
-      widget.onCompleted();
+      _complete();
       return;
     }
     _controller.nextPage(
@@ -41,20 +39,30 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     );
   }
 
-  Future<void> _recordIntroduction() async {
-    setState(() => _listening = true);
-    await Future<void>.delayed(const Duration(milliseconds: 1100));
-    if (!mounted) return;
-    setState(() {
-      _listening = false;
-      _recorded = true;
-      _profile.spokenIntroduction = '我主要想增肌，比较喜欢器械训练，不太喜欢跑步。';
-    });
+  Future<void> _complete() async {
+    _profile.spokenIntroduction = _noteController.text.trim().isEmpty
+        ? null
+        : _noteController.text.trim();
+    final preferences = await SharedPreferences.getInstance();
+    await Future.wait([
+      preferences.setString('profile_sex', _profile.sex),
+      preferences.setInt(
+        'profile_birthday_ms',
+        _profile.birthday.millisecondsSinceEpoch,
+      ),
+      preferences.setInt('profile_height_cm', _profile.heightCm),
+      preferences.setInt('profile_weight_kg', _profile.weightKg),
+      preferences.setString('profile_experience', _profile.experience),
+      preferences.setString('profile_limitation', _profile.limitation),
+      preferences.setString('profile_note', _profile.spokenIntroduction ?? ''),
+    ]);
+    if (mounted) widget.onCompleted();
   }
 
   @override
   void dispose() {
     _controller.dispose();
+    _noteController.dispose();
     super.dispose();
   }
 
@@ -207,11 +215,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                         ],
                       ),
                     ),
-                    _OptionalVoicePage(
-                      listening: _listening,
-                      recorded: _recorded,
-                      onRecord: _recordIntroduction,
-                      onReset: () => setState(() => _recorded = false),
+                    _OptionalNotePage(
+                      controller: _noteController,
                       onDone: _next,
                     ),
                   ],
@@ -731,19 +736,12 @@ class _BirthdayField extends StatelessWidget {
   );
 }
 
-class _OptionalVoicePage extends StatelessWidget {
-  const _OptionalVoicePage({
-    required this.listening,
-    required this.recorded,
-    required this.onRecord,
-    required this.onReset,
-    required this.onDone,
-  });
-  final bool listening;
-  final bool recorded;
-  final VoidCallback onRecord;
-  final VoidCallback onReset;
+class _OptionalNotePage extends StatelessWidget {
+  const _OptionalNotePage({required this.controller, required this.onDone});
+
+  final TextEditingController controller;
   final VoidCallback onDone;
+
   @override
   Widget build(BuildContext context) => Padding(
     padding: const EdgeInsets.only(top: 28),
@@ -753,119 +751,32 @@ class _OptionalVoicePage extends StatelessWidget {
         Text('还有什么想让\n我了解的吗？', style: Theme.of(context).textTheme.displaySmall),
         const SizedBox(height: 14),
         Text(
-          '可以简单介绍训练目标、喜欢或不喜欢的动作。这一步完全可选。',
+          '可以补充训练目标、喜欢或不喜欢的动作。这一步完全可选。',
           style: Theme.of(context).textTheme.bodyMedium,
         ),
         const SizedBox(height: 28),
-        if (!recorded)
-          InkWell(
-            onTap: onRecord,
-            borderRadius: BorderRadius.circular(24),
-            child: Container(
-              width: double.infinity,
-              height: 210,
-              decoration: BoxDecoration(
-                color: const Color(0xFF1C2217),
-                border: Border.all(
-                  color: listening ? AppColors.lime : const Color(0xFF485528),
-                ),
-                borderRadius: BorderRadius.circular(24),
-              ),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Container(
-                    width: 76,
-                    height: 76,
-                    decoration: const BoxDecoration(
-                      color: AppColors.lime,
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.graphic_eq_rounded,
-                      color: Color(0xFF11130D),
-                      size: 42,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    listening ? '正在听…' : '按住说话',
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  const Text(
-                    '例如：想增肌，不喜欢跑步',
-                    style: TextStyle(color: AppColors.muted, fontSize: 11),
-                  ),
-                ],
-              ),
-            ),
-          )
-        else
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(18),
-            decoration: BoxDecoration(
-              color: const Color(0xFF1C2217),
-              border: Border.all(color: const Color(0xFF485528)),
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text(
-                      '✓ 已记录',
-                      style: TextStyle(
-                        color: AppColors.lime,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    TextButton(onPressed: onReset, child: const Text('重录')),
-                  ],
-                ),
-                const Text(
-                  '我主要想增肌，比较喜欢器械训练，不太喜欢跑步。',
-                  style: TextStyle(height: 1.6),
-                ),
-                const SizedBox(height: 12),
-                const Wrap(
-                  spacing: 7,
-                  children: [_Tag('增肌'), _Tag('偏好器械'), _Tag('不喜欢跑步')],
-                ),
-              ],
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            color: const Color(0xFF1C2217),
+            border: Border.all(color: const Color(0xFF485528)),
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: TextField(
+            controller: controller,
+            minLines: 4,
+            maxLines: 6,
+            textInputAction: TextInputAction.done,
+            decoration: const InputDecoration(
+              hintText: '例如：想增肌，偏好器械，不喜欢跑步',
+              border: InputBorder.none,
             ),
           ),
-        const Spacer(),
-        FilledButton(
-          onPressed: onDone,
-          child: Text(recorded ? '保存并开始训练  →' : '跳过，开始训练  →'),
         ),
+        const Spacer(),
+        FilledButton(onPressed: onDone, child: const Text('保存并开始训练  →')),
       ],
-    ),
-  );
-}
-
-class _Tag extends StatelessWidget {
-  const _Tag(this.label);
-  final String label;
-  @override
-  Widget build(BuildContext context) => DecoratedBox(
-    decoration: BoxDecoration(
-      color: const Color(0xFF29321B),
-      borderRadius: BorderRadius.circular(8),
-    ),
-    child: Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
-      child: Text(
-        label,
-        style: const TextStyle(color: AppColors.lime, fontSize: 10),
-      ),
     ),
   );
 }

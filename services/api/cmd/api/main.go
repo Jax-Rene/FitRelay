@@ -213,6 +213,7 @@ func (s *server) plan(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusOK, map[string]any{"result_type": "workout_plan", "request_id": request.RequestID, "source": source, "plan": aiPlan})
 			return
 		}
+		log.Printf("AI plan fallback request_id=%s reason=%v", request.RequestID, err)
 		s.recordAIRun(r, request.RequestID, "plans", "fallback", time.Since(started))
 	}
 	plan := deterministicPlan(request.Checkin.AvailableMinutes)
@@ -246,6 +247,7 @@ func (s *server) adjust(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusOK, map[string]any{"result_type": "workout_plan", "request_id": request.RequestID, "source": source, "plan": aiPlan})
 			return
 		}
+		log.Printf("AI adjustment fallback request_id=%s reason=%v", request.RequestID, err)
 		s.recordAIRun(r, request.RequestID, "adjustments", "fallback", time.Since(started))
 	}
 	plan := deterministicPlan(minutes)
@@ -285,6 +287,7 @@ func (s *server) summary(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusOK, map[string]any{"request_id": request.RequestID, "headline": generated.Headline, "factual_message": generated.FactualMessage, "grounded_facts": generated.GroundedFacts, "source": "ai"})
 			return
 		}
+		log.Printf("AI summary fallback request_id=%s reason=%v", request.RequestID, err)
 		s.recordAIRun(r, request.RequestID, "summaries", "fallback", time.Since(started))
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"request_id": request.RequestID, "headline": headline, "factual_message": fact, "grounded_facts": []string{fact}, "source": "deterministic_fallback"})

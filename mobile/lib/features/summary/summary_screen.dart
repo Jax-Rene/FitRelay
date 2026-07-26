@@ -1,7 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../models/workout_record.dart';
 import '../../services/api_client.dart';
 import '../../theme/app_theme.dart';
 
@@ -11,164 +13,210 @@ class SummaryScreen extends StatefulWidget {
     required this.completedSets,
     required this.durationSeconds,
     this.completedSetsByExercise = const {},
+    this.completedAt,
+    this.saveRecord = true,
+    this.reviewOnly = false,
   });
 
   final int completedSets;
   final int durationSeconds;
   final Map<String, int> completedSetsByExercise;
+  final DateTime? completedAt;
+  final bool saveRecord;
+  final bool reviewOnly;
+
+  factory SummaryScreen.fromRecord(WorkoutRecord record) => SummaryScreen(
+    completedSets: record.completedSets,
+    durationSeconds: record.durationSeconds,
+    completedSetsByExercise: record.completedSetsByExercise,
+    completedAt: record.completedAt,
+    saveRecord: false,
+    reviewOnly: true,
+  );
 
   @override
   State<SummaryScreen> createState() => _SummaryScreenState();
 }
 
 class _SummaryScreenState extends State<SummaryScreen> {
-  late Future<Map<String, dynamic>> _summary;
+  late String _headline;
+  late String _factualMessage;
 
   @override
   void initState() {
     super.initState();
-    _saveLocalRecord();
-    _summary = ApiClient().createSummary(
-      seconds: widget.durationSeconds,
-      completedSets: widget.completedSets,
-    );
+    _headline = _localHeadline();
+    _factualMessage = '本次实际完成 ${widget.completedSets} 个有效组。';
+    if (widget.saveRecord) {
+      unawaited(_saveLocalRecord());
+      unawaited(_loadCoachSummary());
+    }
   }
 
   Future<void> _saveLocalRecord() async {
     if (widget.completedSets <= 0 || widget.durationSeconds <= 0) return;
-    final preferences = await SharedPreferences.getInstance();
-    await preferences.setInt('last_completed_sets', widget.completedSets);
-    await preferences.setInt('last_duration_seconds', widget.durationSeconds);
-    await preferences.setInt(
-      'last_completed_at_ms',
-      DateTime.now().millisecondsSinceEpoch,
+    final completedAt = widget.completedAt ?? DateTime.now();
+    await WorkoutHistoryStore().save(
+      WorkoutRecord(
+        id: 'workout_${completedAt.millisecondsSinceEpoch}',
+        completedAt: completedAt,
+        durationSeconds: widget.durationSeconds,
+        completedSets: widget.completedSets,
+        completedSetsByExercise: widget.completedSetsByExercise,
+      ),
     );
+  }
+
+  Future<void> _loadCoachSummary() async {
+    final data = await ApiClient().createSummary(
+      seconds: widget.durationSeconds,
+      completedSets: widget.completedSets,
+    );
+    if (!mounted) return;
+    setState(() {
+      _headline = (data['headline'] as String?) ?? _headline;
+      _factualMessage = (data['factual_message'] as String?) ?? _factualMessage;
+    });
+  }
+
+  String _localHeadline() {
+    if (widget.completedSets <= 0) return '今天先到这里。';
+    return '完成 ${widget.completedSets} 个有效组，训练已记录。';
   }
 
   @override
   Widget build(BuildContext context) {
+    final hasCompletedWork = widget.completedSets > 0;
+    final muscleSets = _muscleSets(widget.completedSetsByExercise);
     return Scaffold(
       body: SafeArea(
-        child: FutureBuilder<Map<String, dynamic>>(
-          future: _summary,
-          builder: (context, snapshot) {
-            final data = snapshot.data;
-            final hasCompletedWork = widget.completedSets > 0;
-            final muscleSets = _muscleSets(widget.completedSetsByExercise);
-            return Column(
-              children: [
-                Expanded(
-                  child: ListView(
-                    padding: const EdgeInsets.fromLTRB(22, 30, 22, 18),
-                    children: [
-                      Align(
-                        alignment: Alignment.centerLeft,
-                        child: Container(
-                          width: 52,
-                          height: 52,
-                          alignment: Alignment.center,
-                          decoration: BoxDecoration(
-                            color: AppColors.lime,
-                            borderRadius: BorderRadius.circular(16),
-                            boxShadow: const [
-                              BoxShadow(
-                                color: Color(0x2ED8FF3E),
-                                blurRadius: 24,
-                                spreadRadius: 2,
-                              ),
-                            ],
+        child: Column(
+          children: [
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(22, 30, 22, 18),
+                children: [
+                  if (widget.reviewOnly) ...[
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: TextButton.icon(
+                        onPressed: () => Navigator.pop(context),
+                        icon: const Icon(Icons.arrow_back_rounded),
+                        label: const Text('训练记录'),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                  ],
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Container(
+                      width: 52,
+                      height: 52,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: AppColors.lime,
+                        borderRadius: BorderRadius.circular(16),
+                        boxShadow: const [
+                          BoxShadow(
+                            color: Color(0x2ED8FF3E),
+                            blurRadius: 24,
+                            spreadRadius: 2,
                           ),
-                          child: const Icon(
-                            Icons.check_rounded,
-                            color: Color(0xFF11130D),
-                            size: 30,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-                      const Text(
-                        '今天完成了',
-                        style: TextStyle(
-                          color: AppColors.lime,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        hasCompletedWork
-                            ? (data?['headline'] as String?) ?? '正在整理训练…'
-                            : '今天先到这里，没有虚构完成数据。',
-                        style: Theme.of(context).textTheme.displaySmall,
-                      ),
-                      const SizedBox(height: 28),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceAround,
-                        children: [
-                          _Stat('${widget.durationSeconds ~/ 60}', '分钟'),
-                          _Stat('${widget.completedSets}', '有效组'),
-                          _Stat('${muscleSets.length}', '肌群'),
-                          _Stat('${widget.completedSets * 28}', '估算千卡'),
                         ],
                       ),
-                      const SizedBox(height: 26),
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(18),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF20251A),
-                          borderRadius: BorderRadius.circular(18),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              '一个真实记录',
-                              style: TextStyle(
-                                color: AppColors.lime,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              hasCompletedWork
-                                  ? (data?['factual_message'] as String?) ??
-                                        '只统计本次实际完成的数据。'
-                                  : '本次没有完成有效组，因此不会写入训练记录。',
-                              style: const TextStyle(height: 1.6),
-                            ),
-                          ],
-                        ),
+                      child: const Icon(
+                        Icons.check_rounded,
+                        color: Color(0xFF11130D),
+                        size: 30,
                       ),
-                      const SizedBox(height: 18),
-                      Text(
-                        hasCompletedWork
-                            ? '一周没有训练，今天没有追重量是合理的。主要肌群已经重新覆盖，下次可以从今天的状态继续。'
-                            : '总结只统计真实完成的动作和组数。',
-                        style: TextStyle(color: AppColors.muted, height: 1.6),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  const Text(
+                    '今天完成了',
+                    style: TextStyle(
+                      color: AppColors.lime,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    hasCompletedWork ? _headline : '今天先到这里，没有虚构完成数据。',
+                    style: Theme.of(context).textTheme.displaySmall,
+                  ),
+                  const SizedBox(height: 28),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    children: [
+                      _Stat(
+                        widget.durationSeconds < 60
+                            ? '<1'
+                            : '${widget.durationSeconds ~/ 60}',
+                        '分钟',
                       ),
-                      const SizedBox(height: 18),
-                      if (muscleSets.isNotEmpty)
-                        _BodyCoverage(muscleSets: muscleSets)
-                      else if (hasCompletedWork)
-                        const Text(
-                          '本次缺少动作明细，不生成肌群覆盖估算。',
-                          style: TextStyle(color: AppColors.muted),
-                        ),
+                      _Stat('${widget.completedSets}', '有效组'),
+                      _Stat('${widget.completedSetsByExercise.length}', '动作'),
+                      _Stat('${muscleSets.length}', '肌群'),
                     ],
                   ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(22, 8, 22, 18),
-                  child: FilledButton(
-                    onPressed: () => Navigator.of(
-                      context,
-                    ).popUntil((route) => route.isFirst),
-                    child: const Text('完成，回到首页'),
+                  const SizedBox(height: 26),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(18),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF20251A),
+                      borderRadius: BorderRadius.circular(18),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          '一个真实记录',
+                          style: TextStyle(
+                            color: AppColors.lime,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          hasCompletedWork
+                              ? _factualMessage
+                              : '本次没有完成有效组，因此不会写入训练记录。',
+                          style: const TextStyle(height: 1.6),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-              ],
-            );
-          },
+                  const SizedBox(height: 18),
+                  Text(
+                    hasCompletedWork
+                        ? '训练记录已优先保存在本机；教练总结会在后台更新，不会阻塞返回首页。'
+                        : '总结只统计真实完成的动作和组数。',
+                    style: TextStyle(color: AppColors.muted, height: 1.6),
+                  ),
+                  const SizedBox(height: 18),
+                  if (muscleSets.isNotEmpty)
+                    _BodyCoverage(muscleSets: muscleSets)
+                  else if (hasCompletedWork)
+                    const Text(
+                      '本次缺少动作明细，不生成肌群覆盖估算。',
+                      style: TextStyle(color: AppColors.muted),
+                    ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(22, 8, 22, 18),
+              child: FilledButton(
+                onPressed: widget.reviewOnly
+                    ? () => Navigator.pop(context)
+                    : () => Navigator.of(
+                        context,
+                      ).popUntil((route) => route.isFirst),
+                child: Text(widget.reviewOnly ? '返回' : '完成，回到首页'),
+              ),
+            ),
+          ],
         ),
       ),
     );

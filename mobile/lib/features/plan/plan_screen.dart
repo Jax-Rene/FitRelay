@@ -115,7 +115,11 @@ class _PlanScreenState extends State<PlanScreen> {
                 padding: const EdgeInsets.fromLTRB(22, 12, 22, 120),
                 children: [
                   Text(
-                    _adjusting ? '正在重新编排' : '恢复型全身训练',
+                    _adjusting
+                        ? '正在重新编排'
+                        : _plan.source == 'local_fallback'
+                        ? '本机计划'
+                        : 'AI 教练计划',
                     style: const TextStyle(
                       color: AppColors.lime,
                       fontWeight: FontWeight.w800,
@@ -123,12 +127,15 @@ class _PlanScreenState extends State<PlanScreen> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    _plan.title.contains('缩短')
-                        ? '时间变了，\n计划跟着变。'
-                        : '找回节奏，\n今天不追重量。',
+                    _plan.title,
                     style: Theme.of(context).textTheme.displaySmall,
                   ),
                   const SizedBox(height: 14),
+                  Text(
+                    _plan.goalSummary,
+                    style: const TextStyle(color: AppColors.muted, height: 1.5),
+                  ),
+                  const SizedBox(height: 8),
                   Text(
                     _plan.coachMessage,
                     style: Theme.of(context).textTheme.bodyMedium,
@@ -160,6 +167,9 @@ class _PlanScreenState extends State<PlanScreen> {
                       exercise: entry.$2,
                       onReplace: (replacement) =>
                           _replaceExercise(entry.$1, replacement),
+                      onChange: (updated) =>
+                          _replaceExercise(entry.$1, updated, announce: false),
+                      onRemove: () => _removeExercise(entry.$1),
                     ),
                   ),
                 ],
@@ -204,13 +214,36 @@ class _PlanScreenState extends State<PlanScreen> {
     );
   }
 
-  void _replaceExercise(int index, WorkoutExercise replacement) {
+  void _replaceExercise(
+    int index,
+    WorkoutExercise replacement, {
+    bool announce = true,
+  }) {
     final exercises = [..._plan.exercises];
     exercises[index] = replacement;
     setState(() => _plan = _plan.copyWith(exercises: exercises));
+    if (!announce) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text('已换成${replacement.name}'),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  void _removeExercise(int index) {
+    if (_plan.exercises.length <= 1) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('计划至少要保留一个动作')));
+      return;
+    }
+    final removed = _plan.exercises[index];
+    final exercises = [..._plan.exercises]..removeAt(index);
+    setState(() => _plan = _plan.copyWith(exercises: exercises));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('已从计划中移除${removed.name}'),
         behavior: SnackBarBehavior.floating,
       ),
     );
@@ -238,10 +271,14 @@ class _ExerciseRow extends StatelessWidget {
     required this.index,
     required this.exercise,
     required this.onReplace,
+    required this.onChange,
+    required this.onRemove,
   });
   final int index;
   final WorkoutExercise exercise;
   final ValueChanged<WorkoutExercise> onReplace;
+  final ValueChanged<WorkoutExercise> onChange;
+  final VoidCallback onRemove;
   @override
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.symmetric(vertical: 12),
@@ -385,14 +422,13 @@ class _ExerciseRow extends StatelessWidget {
                   title: const Text('调整重量或组数'),
                   subtitle: const Text('只修改这个动作'),
                   trailing: const Icon(Icons.chevron_right),
-                  onTap: () =>
-                      _confirmAction(context, sheetContext, '可在训练中直接调整重量与次数'),
+                  onTap: () => _openAdjustment(context, sheetContext),
                 ),
                 ListTile(
                   leading: const Icon(Icons.close, color: Color(0xFFFF928C)),
                   title: const Text('从计划中移除'),
                   trailing: const Icon(Icons.chevron_right),
-                  onTap: () => _confirmAction(context, sheetContext, '已记录移除意图'),
+                  onTap: () => _confirmRemove(context, sheetContext),
                 ),
               ],
             ),
@@ -419,14 +455,125 @@ class _ExerciseRow extends StatelessWidget {
     if (selected != null) onReplace(selected.replace(exercise));
   }
 
-  void _confirmAction(
+  Future<void> _openAdjustment(
     BuildContext pageContext,
     BuildContext sheetContext,
-    String message,
-  ) {
+  ) async {
     Navigator.pop(sheetContext);
-    ScaffoldMessenger.of(pageContext).showSnackBar(
-      SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
+    var sets = exercise.sets;
+    var load = exercise.loadKg;
+    final updated = await showModalBottomSheet<WorkoutExercise>(
+      context: pageContext,
+      backgroundColor: AppColors.panel,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setSheetState) => SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(22),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '调整${exercise.name}',
+                  style: const TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 18),
+                _AdjustmentRow(
+                  label: '训练组数',
+                  value: '$sets 组',
+                  onMinus: () =>
+                      setSheetState(() => sets = (sets - 1).clamp(1, 8)),
+                  onPlus: () =>
+                      setSheetState(() => sets = (sets + 1).clamp(1, 8)),
+                ),
+                const SizedBox(height: 10),
+                _AdjustmentRow(
+                  label: '建议重量',
+                  value: '${load.toStringAsFixed(0)} kg',
+                  onMinus: () =>
+                      setSheetState(() => load = (load - 5).clamp(0, 500)),
+                  onPlus: () => setSheetState(() => load += 5),
+                ),
+                const SizedBox(height: 18),
+                FilledButton(
+                  onPressed: () => Navigator.pop(
+                    context,
+                    exercise.copyWith(sets: sets, loadKg: load),
+                  ),
+                  child: const Text('保存调整'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
+    if (updated != null) onChange(updated);
   }
+
+  Future<void> _confirmRemove(
+    BuildContext pageContext,
+    BuildContext sheetContext,
+  ) async {
+    Navigator.pop(sheetContext);
+    final confirmed = await showDialog<bool>(
+      context: pageContext,
+      builder: (context) => AlertDialog(
+        title: Text('移除${exercise.name}？'),
+        content: const Text('移除后，其余动作顺序会自动向前调整。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('确认移除'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) onRemove();
+  }
+}
+
+class _AdjustmentRow extends StatelessWidget {
+  const _AdjustmentRow({
+    required this.label,
+    required this.value,
+    required this.onMinus,
+    required this.onPlus,
+  });
+
+  final String label;
+  final String value;
+  final VoidCallback onMinus;
+  final VoidCallback onPlus;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+    decoration: BoxDecoration(
+      color: AppColors.panelSoft,
+      borderRadius: BorderRadius.circular(14),
+    ),
+    child: Row(
+      children: [
+        Expanded(child: Text(label)),
+        IconButton(onPressed: onMinus, icon: const Icon(Icons.remove)),
+        SizedBox(
+          width: 72,
+          child: Text(
+            value,
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontWeight: FontWeight.w900),
+          ),
+        ),
+        IconButton(onPressed: onPlus, icon: const Icon(Icons.add)),
+      ],
+    ),
+  );
 }

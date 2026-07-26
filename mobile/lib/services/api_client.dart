@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../models/workout_record.dart';
 import '../models/workout_plan.dart';
 
 class ApiClient {
@@ -44,6 +45,9 @@ class ApiClient {
   Future<WorkoutPlan> generatePlan(String rawText) async {
     try {
       final token = await _token();
+      final preferences = await SharedPreferences.getInstance();
+      final profile = _profileContext(preferences);
+      final history = await WorkoutHistoryStore().load();
       final response = await _client.post(
         Uri.parse('$baseUrl/v1/coach/plans'),
         headers: {
@@ -55,19 +59,12 @@ class ApiClient {
           'locale': 'zh-CN',
           'timezone': 'Asia/Shanghai',
           'catalog_version': 1,
-          'profile': {
-            'primary_goal': 'maintain_muscle',
-            'experience_level': 'some_experience',
-            'environment': 'commercial_gym',
-            'coaching_tone': 'warm_specific',
-            'preferences': ['machine_training', 'cardio_after_strength'],
-            'constraints': [],
-          },
+          'profile': profile,
           'checkin': {
             'raw_text': rawText,
             'available_minutes': _minutesFrom(rawText),
             'energy_level': 3,
-            'days_since_last_workout': 7,
+            'days_since_last_workout': _daysSinceLastWorkout(history),
             'pain': [],
             'wanted_focus': ['full_body'],
             'avoided_focus': [],
@@ -177,6 +174,39 @@ class ApiClient {
   static int _minutesFrom(String text) {
     final match = RegExp(r'(\d{2,3})\s*分钟').firstMatch(text);
     return int.tryParse(match?.group(1) ?? '')?.clamp(10, 120) ?? 60;
+  }
+
+  static Map<String, dynamic> _profileContext(SharedPreferences preferences) {
+    final experience = preferences.getString('profile_experience');
+    final limitation = preferences.getString('profile_limitation');
+    final note = preferences.getString('profile_note') ?? '';
+    final profilePreferences = <String>[];
+    if (note.contains('器械')) profilePreferences.add('machine_training');
+    if (note.contains('有氧')) profilePreferences.add('cardio_after_strength');
+    if (note.contains('不喜欢跑步')) profilePreferences.add('avoid_running');
+    if (profilePreferences.isEmpty) {
+      profilePreferences.add('balanced_full_body');
+    }
+    return {
+      'primary_goal': note.contains('增肌')
+          ? 'gradual_muscle_gain'
+          : 'maintain_muscle',
+      'experience_level': experience == '比较熟悉'
+          ? 'experienced'
+          : 'some_experience',
+      'environment': 'commercial_gym',
+      'coaching_tone': 'warm_specific',
+      'preferences': profilePreferences,
+      'constraints': [if (limitation != null && limitation != '暂无') limitation],
+    };
+  }
+
+  static int _daysSinceLastWorkout(List<WorkoutRecord> history) {
+    if (history.isEmpty) return 30;
+    return DateTime.now()
+        .difference(history.first.completedAt)
+        .inDays
+        .clamp(0, 365);
   }
 }
 

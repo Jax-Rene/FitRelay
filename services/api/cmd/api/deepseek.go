@@ -14,8 +14,8 @@ import (
 
 const deepSeekSystemPrompt = `你是随练 AI 的训练计划编排器。只输出 JSON，不要输出 Markdown 或解释。
 安全规则：只能使用输入中的动作 slug；不得诊断疾病；有疼痛风险时不要自行给康复处方；不得虚构训练历史；训练量、时长和重量必须保守。
-计划 JSON 必须包含 plan_id、title、session_type、goal_summary、coach_message、estimated_minutes、intensity_guidance、exercises。每个 exercise 必须包含 item_id、order_index、block_type、exercise_slug、sets、target_rir、rest_seconds、load_basis、cue、alternative_slugs。力量动作还需 reps_min、reps_max；有氧动作还需 target_duration_seconds。
-总结 JSON 必须包含 headline、factual_message、grounded_facts，并且 factual_message 和 grounded_facts 只能逐字使用输入的 allowed_facts。`
+生成或调整计划时，顶层必须直接是计划对象，只允许 plan_id、title、session_type、goal_summary、coach_message、estimated_minutes、intensity_guidance、exercises 这 8 个字段；不要包装 plan，不要添加 summary、reasoning 或其他字段。每个 exercise 只允许 item_id、order_index、block_type、exercise_slug、sets、reps_min、reps_max、target_duration_seconds、target_rir、rest_seconds、suggested_load_kg、load_basis、cue、alternative_slugs；力量动作需要 reps_min、reps_max，有氧动作需要 target_duration_seconds，不适用的可选字段直接省略。
+生成总结时，顶层只允许 headline、factual_message、grounded_facts 这 3 个字段，并且 factual_message 和 grounded_facts 只能逐字使用输入的 allowed_facts。`
 
 type deepSeekClient struct {
 	apiKey  string
@@ -58,7 +58,7 @@ type workoutPlan struct {
 }
 
 type workoutExercise struct {
-	ItemID                string   `json:"item_id"`
+	ItemID                any      `json:"item_id"`
 	OrderIndex            int      `json:"order_index"`
 	BlockType             string   `json:"block_type"`
 	ExerciseSlug          string   `json:"exercise_slug"`
@@ -181,13 +181,19 @@ func validateAIPlan(plan *workoutPlan, maxMinutes int, allowedSlugs map[string]b
 		if !allowedSlugs[exercise.ExerciseSlug] {
 			return false, fmt.Errorf("exercise %q is not in the client catalog", exercise.ExerciseSlug)
 		}
-		if exercise.ItemID == "" || len(exercise.Cue) > 240 || exercise.Cue == "" {
-			return false, errors.New("exercise identity or cue is invalid")
+		if len(exercise.Cue) > 240 {
+			return false, errors.New("exercise cue exceeds safety limits")
 		}
-		if exercise.BlockType != "strength" && exercise.BlockType != "cardio" {
+		if exercise.Cue == "" {
+			exercise.Cue = "动作稳定、全程可控；出现不适立即停止。"
+			repaired = true
+		}
+		exercise.ItemID = fmt.Sprintf("item_%d", index+1)
+		validBlockTypes := map[string]bool{"warmup": true, "strength": true, "core": true, "cardio": true, "cooldown": true}
+		if !validBlockTypes[exercise.BlockType] {
 			return false, errors.New("invalid exercise block type")
 		}
-		if exercise.Sets < 1 || exercise.Sets > 5 || exercise.TargetRIR < 1 || exercise.TargetRIR > 5 || exercise.RestSeconds < 0 || exercise.RestSeconds > 300 {
+		if exercise.Sets < 1 || exercise.Sets > 5 || exercise.TargetRIR < 0 || exercise.TargetRIR > 6 || exercise.RestSeconds < 0 || exercise.RestSeconds > 300 {
 			return false, errors.New("exercise volume is outside safety limits")
 		}
 		if exercise.BlockType == "strength" && (exercise.RepsMin < 1 || exercise.RepsMax < exercise.RepsMin || exercise.RepsMax > 30) {

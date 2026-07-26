@@ -1,16 +1,27 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../models/workout_record.dart';
+import '../../services/environment_service.dart';
 import '../../services/api_client.dart';
 import '../../theme/app_theme.dart';
+import '../account/account_screen.dart';
 import '../exercise_library/exercise_library_screen.dart';
+import '../history/history_screen.dart';
 import '../plan/plan_screen.dart';
+import '../summary/summary_screen.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key, this.date});
+  const HomeScreen({
+    super.key,
+    this.date,
+    this.onLogout,
+    this.environmentService,
+  });
 
   final DateTime? date;
+  final Future<void> Function()? onLogout;
+  final EnvironmentService? environmentService;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -22,23 +33,65 @@ class _HomeScreenState extends State<HomeScreen> {
   );
   bool _keyboard = false;
   bool _loading = false;
-  int? _lastSets;
-  int? _lastMinutes;
+  bool _environmentLoading = true;
+  List<WorkoutRecord> _records = const [];
+  EnvironmentSnapshot? _environment;
+  String? _environmentError;
+
+  late final EnvironmentService _environmentService =
+      widget.environmentService ?? LiveEnvironmentService();
 
   @override
   void initState() {
     super.initState();
-    _loadLastRecord();
+    _restore();
   }
 
-  Future<void> _loadLastRecord() async {
-    final preferences = await SharedPreferences.getInstance();
+  Future<void> _restore() async {
+    await WorkoutHistoryStore().migrateLegacyRecord();
+    await Future.wait([_loadRecords(), _loadEnvironment()]);
+  }
+
+  Future<void> _loadRecords() async {
+    final records = await WorkoutHistoryStore().load();
     if (!mounted) return;
-    final seconds = preferences.getInt('last_duration_seconds');
-    setState(() {
-      _lastSets = preferences.getInt('last_completed_sets');
-      _lastMinutes = seconds == null ? null : seconds ~/ 60;
-    });
+    setState(() => _records = records);
+  }
+
+  Future<void> _loadEnvironment() async {
+    final cached = await _environmentService.cached();
+    if (mounted && cached != null) setState(() => _environment = cached);
+    await _refreshEnvironment(showError: cached == null);
+  }
+
+  Future<void> _refreshEnvironment({bool showError = true}) async {
+    if (mounted) {
+      setState(() {
+        _environmentLoading = true;
+        _environmentError = null;
+      });
+    }
+    try {
+      final snapshot = await _environmentService.refresh();
+      if (!mounted) return;
+      setState(() => _environment = snapshot);
+    } catch (error) {
+      if (!mounted) return;
+      final message = error is EnvironmentException
+          ? error.message
+          : '位置与天气更新失败';
+      setState(() => _environmentError = message);
+      if (showError) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('$message，点击状态栏可重试。'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _environmentLoading = false);
+    }
   }
 
   Future<void> _generate() async {
@@ -50,7 +103,14 @@ class _HomeScreenState extends State<HomeScreen> {
     await Navigator.of(
       context,
     ).push(MaterialPageRoute<void>(builder: (_) => PlanScreen(plan: plan)));
-    await _loadLastRecord();
+    await _loadRecords();
+  }
+
+  Future<void> _openRecord(WorkoutRecord record) async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(builder: (_) => SummaryScreen.fromRecord(record)),
+    );
+    await _loadRecords();
   }
 
   @override
@@ -61,8 +121,20 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final hasTodayRecord = _lastSets != null;
-    final dateLabel = homeDateLabel(widget.date ?? DateTime.now());
+    final today = widget.date ?? DateTime.now();
+    final latest = _records.firstOrNull;
+    final todayRecord = latest != null && _isSameDay(latest.completedAt, today)
+        ? latest
+        : null;
+    final hasTodayRecord = todayRecord != null;
+    final dateLabel = homeDateLabel(today);
+    final locationLabel =
+        _environment?.locationLabel ??
+        (_environmentLoading ? '正在定位…' : '定位未更新');
+    final weatherLabel =
+        _environment?.weatherLabel ??
+        (_environmentLoading ? '天气同步中…' : '天气未更新');
+    final humidityLabel = _environment?.humidityLabel ?? '湿度 --';
     return Scaffold(
       body: SafeArea(
         child: ListView(
@@ -84,20 +156,41 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       ),
                       const SizedBox(height: 8),
-                      const Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          _StatusPill(
-                            icon: Icons.location_on_outlined,
-                            label: '上海 · 徐汇',
-                          ),
-                          _StatusPill(
-                            icon: Icons.wb_sunny_outlined,
-                            label: '晴 31°',
-                          ),
-                        ],
+                      Semantics(
+                        container: true,
+                        label: _environment == null ? '环境信息更新中' : '环境信息已更新',
+                        child: Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            _StatusPill(
+                              icon: Icons.location_on_outlined,
+                              label: locationLabel,
+                              onTap: _refreshEnvironment,
+                            ),
+                            _StatusPill(
+                              icon: _weatherIcon(weatherLabel),
+                              label: weatherLabel,
+                              onTap: _refreshEnvironment,
+                            ),
+                            _StatusPill(
+                              icon: Icons.water_drop_outlined,
+                              label: humidityLabel,
+                              onTap: _refreshEnvironment,
+                            ),
+                          ],
+                        ),
                       ),
+                      if (_environmentError != null) ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          '$_environmentError · 点击上方重试',
+                          style: const TextStyle(
+                            color: AppColors.orange,
+                            fontSize: 10,
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -108,19 +201,18 @@ class _HomeScreenState extends State<HomeScreen> {
                     color: AppColors.panelSoft,
                     shape: const CircleBorder(),
                     child: InkWell(
-                      onTap: () => ScaffoldMessenger.of(
-                        context,
-                      ).showSnackBar(const SnackBar(content: Text('个人设置即将开放'))),
+                      onTap: () => Navigator.of(context).push<void>(
+                        MaterialPageRoute(
+                          builder: (_) => AccountScreen(
+                            onLogout: widget.onLogout ?? () async {},
+                          ),
+                        ),
+                      ),
                       customBorder: const CircleBorder(),
                       child: const SizedBox(
                         width: 48,
                         height: 48,
-                        child: Center(
-                          child: Text(
-                            '堂',
-                            style: TextStyle(fontWeight: FontWeight.w900),
-                          ),
-                        ),
+                        child: Center(child: Icon(Icons.person_rounded)),
                       ),
                     ),
                   ),
@@ -140,9 +232,9 @@ class _HomeScreenState extends State<HomeScreen> {
             const SizedBox(height: 20),
             if (hasTodayRecord)
               _TodayRecord(
-                sets: _lastSets!,
-                minutes: _lastMinutes ?? 0,
-                onOpen: _generate,
+                sets: todayRecord.completedSets,
+                seconds: todayRecord.durationSeconds,
+                onOpen: () => _openRecord(todayRecord),
               )
             else if (_keyboard)
               _KeyboardEntry(
@@ -176,41 +268,43 @@ class _HomeScreenState extends State<HomeScreen> {
                 const SizedBox(width: 10),
                 Expanded(
                   child: _QuickActionCard(
-                    icon: Icons.replay_rounded,
+                    icon: hasTodayRecord
+                        ? Icons.restart_alt_rounded
+                        : Icons.play_arrow_rounded,
                     color: AppColors.lime,
-                    title: '沿用上次',
-                    subtitle: '60 分钟 · 全身',
+                    title: hasTodayRecord ? '重新开练' : '快速开练',
+                    subtitle: hasTodayRecord ? '重新生成今天的计划' : '60 分钟 · 全身',
                     onTap: _generate,
                   ),
                 ),
               ],
             ),
             const SizedBox(height: 30),
-            const Row(
+            Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(
+                const Text(
                   '上一次训练',
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
                 ),
-                Row(
-                  children: [
-                    Text(
-                      '查看历史',
-                      style: TextStyle(color: AppColors.muted, fontSize: 12),
-                    ),
-                    SizedBox(width: 2),
-                    Icon(
-                      Icons.arrow_forward_rounded,
-                      color: AppColors.muted,
-                      size: 16,
-                    ),
-                  ],
+                TextButton.icon(
+                  onPressed: _records.isEmpty
+                      ? null
+                      : () => Navigator.of(context).push<void>(
+                          MaterialPageRoute(
+                            builder: (_) => HistoryScreen(records: _records),
+                          ),
+                        ),
+                  label: const Text('查看历史'),
+                  icon: const Icon(Icons.arrow_forward_rounded, size: 16),
                 ),
               ],
             ),
             const SizedBox(height: 14),
-            const _LastSession(),
+            _LastSession(
+              record: latest,
+              onOpen: latest == null ? null : () => _openRecord(latest),
+            ),
           ],
         ),
       ),
@@ -219,29 +313,41 @@ class _HomeScreenState extends State<HomeScreen> {
 }
 
 class _StatusPill extends StatelessWidget {
-  const _StatusPill({required this.icon, required this.label});
+  const _StatusPill({required this.icon, required this.label, this.onTap});
 
   final IconData icon;
   final String label;
+  final VoidCallback? onTap;
 
   @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-    decoration: BoxDecoration(
+  Widget build(BuildContext context) => Semantics(
+    button: onTap != null,
+    label: '$label，点击刷新',
+    child: Material(
       color: AppColors.panel,
       borderRadius: BorderRadius.circular(999),
-      border: Border.all(color: AppColors.line),
-    ),
-    child: Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: 14, color: AppColors.muted),
-        const SizedBox(width: 5),
-        Text(
-          label,
-          style: const TextStyle(color: AppColors.muted, fontSize: 11),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(999),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: AppColors.line),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 14, color: AppColors.muted),
+              const SizedBox(width: 5),
+              Text(
+                label,
+                style: const TextStyle(color: AppColors.muted, fontSize: 11),
+              ),
+            ],
+          ),
         ),
-      ],
+      ),
     ),
   );
 }
@@ -402,14 +508,14 @@ class _VoiceEntry extends StatelessWidget {
                               ),
                             )
                           : const Icon(
-                              Icons.graphic_eq_rounded,
+                              Icons.auto_awesome_rounded,
                               color: AppColors.lime,
                               size: 31,
                             ),
                     ),
                     const SizedBox(height: 14),
                     Text(
-                      loading ? '正在理解你的状态…' : '说出今天的状态',
+                      loading ? '正在理解你的状态…' : '快速生成今天计划',
                       style: const TextStyle(
                         color: Color(0xFF11130D),
                         fontSize: 23,
@@ -419,7 +525,7 @@ class _VoiceEntry extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     const Text(
-                      '时间 · 精力 · 想练的部位',
+                      '基于你的资料生成，也可先补充状态',
                       style: TextStyle(
                         color: Color(0xFF46541E),
                         fontSize: 12,
@@ -494,7 +600,7 @@ class _KeyboardEntry extends StatelessWidget {
               '输入今天的状态',
               style: TextStyle(fontWeight: FontWeight.w800),
             ),
-            TextButton(onPressed: onClose, child: const Text('语音输入')),
+            TextButton(onPressed: onClose, child: const Text('返回快速生成')),
           ],
         ),
         TextField(
@@ -518,15 +624,16 @@ class _KeyboardEntry extends StatelessWidget {
 class _TodayRecord extends StatelessWidget {
   const _TodayRecord({
     required this.sets,
-    required this.minutes,
+    required this.seconds,
     required this.onOpen,
   });
   final int sets;
-  final int minutes;
+  final int seconds;
   final VoidCallback onOpen;
 
   @override
   Widget build(BuildContext context) => InkWell(
+    key: const Key('today_record'),
     onTap: onOpen,
     borderRadius: BorderRadius.circular(22),
     child: Container(
@@ -552,7 +659,7 @@ class _TodayRecord extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 5),
-                Text('$minutes 分钟 · $sets 个有效组'),
+                Text('${_durationLabel(seconds)} · $sets 个有效组'),
               ],
             ),
           ),
@@ -564,66 +671,116 @@ class _TodayRecord extends StatelessWidget {
 }
 
 class _LastSession extends StatelessWidget {
-  const _LastSession();
+  const _LastSession({required this.record, required this.onOpen});
+
+  final WorkoutRecord? record;
+  final VoidCallback? onOpen;
+
   @override
-  Widget build(BuildContext context) => Column(
-    children: [
-      const Row(
+  Widget build(BuildContext context) {
+    if (record == null) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: AppColors.panel,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppColors.line),
+        ),
+        child: const Text(
+          '还没有训练记录。完成第一次训练后，这里会显示真实数据。',
+          style: TextStyle(color: AppColors.muted),
+        ),
+      );
+    }
+    final value = record!;
+    return InkWell(
+      onTap: onOpen,
+      borderRadius: BorderRadius.circular(16),
+      child: Column(
         children: [
-          SizedBox(
-            width: 48,
-            child: Column(
-              children: [
-                Text(
-                  '05',
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
+          Row(
+            children: [
+              SizedBox(
+                width: 48,
+                child: Column(
+                  children: [
+                    Text(
+                      '${value.completedAt.day}'.padLeft(2, '0'),
+                      style: const TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    Text(
+                      '${value.completedAt.month} 月',
+                      style: const TextStyle(
+                        color: AppColors.muted,
+                        fontSize: 10,
+                      ),
+                    ),
+                  ],
                 ),
-                Text(
-                  '7 月',
-                  style: TextStyle(color: AppColors.muted, fontSize: 10),
+              ),
+              SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '训练记录 · ${_durationLabel(value.durationSeconds)}',
+                      style: const TextStyle(fontWeight: FontWeight.w900),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${value.completedSets} 个有效组 · ${value.completedSetsByExercise.length} 个动作',
+                      style: const TextStyle(
+                        color: AppColors.muted,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
-          SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+          const SizedBox(height: 14),
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: const Color(0xFF182014),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: const Row(
               children: [
-                Text(
-                  '全身力量 · 62 分钟',
-                  style: TextStyle(fontWeight: FontWeight.w900),
-                ),
-                SizedBox(height: 4),
-                Text(
-                  '15 个有效组 · 4 个主要肌群',
-                  style: TextStyle(color: AppColors.muted, fontSize: 11),
+                Icon(Icons.check_circle_outline_rounded, color: AppColors.lime),
+                SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    '只展示本次真实完成的数据，点击查看训练总结。',
+                    style: TextStyle(fontSize: 11),
+                  ),
                 ),
               ],
             ),
           ),
         ],
       ),
-      const SizedBox(height: 14),
-      Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: const Color(0xFF182014),
-          borderRadius: BorderRadius.circular(14),
-        ),
-        child: const Row(
-          children: [
-            Icon(Icons.north_east, color: AppColors.lime),
-            SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                '高位下拉在相同重量下，比上次多完成 3 次',
-                style: TextStyle(fontSize: 11),
-              ),
-            ),
-          ],
-        ),
-      ),
-    ],
-  );
+    );
+  }
+}
+
+bool _isSameDay(DateTime a, DateTime b) =>
+    a.year == b.year && a.month == b.month && a.day == b.day;
+
+String _durationLabel(int seconds) =>
+    seconds < 60 ? '不足 1 分钟' : '${seconds ~/ 60} 分钟';
+
+IconData _weatherIcon(String label) {
+  if (label.contains('雨')) return Icons.umbrella_outlined;
+  if (label.contains('雪')) return Icons.ac_unit_rounded;
+  if (label.contains('云') || label.contains('雾')) {
+    return Icons.cloud_outlined;
+  }
+  return Icons.wb_sunny_outlined;
 }

@@ -26,6 +26,11 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   late double _load;
   int _reps = 10;
   late int _restSeconds;
+  late final DateTime _startedAt;
+  Timer? _elapsedTimer;
+  int _elapsedSeconds = 0;
+  bool _finishing = false;
+  bool _allowPop = false;
 
   WorkoutExercise get _exercise => _exercises[_exerciseIndex];
 
@@ -35,6 +40,19 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     _exercises = [...widget.plan.exercises];
     _load = _exercises.first.loadKg;
     _restSeconds = _exercises.first.restSeconds;
+    _startedAt = DateTime.now();
+    _elapsedTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      setState(() {
+        _elapsedSeconds = DateTime.now().difference(_startedAt).inSeconds;
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _elapsedTimer?.cancel();
+    super.dispose();
   }
 
   void _completeSet() {
@@ -72,12 +90,18 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   }
 
   void _finish() {
-    if (_completedSets == 0) return;
+    if (_completedSets == 0 || _finishing) return;
+    _finishing = true;
+    _elapsedTimer?.cancel();
+    final durationSeconds = DateTime.now()
+        .difference(_startedAt)
+        .inSeconds
+        .clamp(1, 24 * 60 * 60);
     Navigator.of(context).pushReplacement(
       MaterialPageRoute<void>(
         builder: (_) => SummaryScreen(
           completedSets: _completedSets,
-          durationSeconds: _completedSets * 240,
+          durationSeconds: durationSeconds,
           completedSetsByExercise: Map.unmodifiable(_completedSetsByExercise),
         ),
       ),
@@ -106,187 +130,198 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
         ],
       ),
     );
-    if (abandon == true && mounted) Navigator.of(context).pop();
+    if (abandon == true && mounted) {
+      setState(() => _allowPop = true);
+      Navigator.of(context).pop();
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('训练中 · 03:42'),
-        actions: [
-          TextButton(onPressed: _requestFinish, child: const Text('结束')),
-        ],
-      ),
-      body: SafeArea(
-        top: false,
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(22, 12, 22, 18),
-          children: [
-            LinearProgressIndicator(
-              value:
-                  (_exerciseIndex + (_setIndex / _exercise.sets)) /
-                  _exercises.length,
-              minHeight: 3,
-              backgroundColor: AppColors.line,
-              color: AppColors.lime,
-            ),
-            const SizedBox(height: 22),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  '动作 ${_exerciseIndex + 1} / ${_exercises.length}',
-                  style: const TextStyle(color: AppColors.muted),
-                ),
-                TextButton(
-                  onPressed: _showExerciseList,
-                  child: const Text('全部动作 ≡'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            AnimatedSwitcher(
-              duration: const Duration(milliseconds: 240),
-              switchInCurve: Curves.easeOutCubic,
-              switchOutCurve: Curves.easeInCubic,
-              transitionBuilder: (child, animation) => FadeTransition(
-                opacity: animation,
-                child: SlideTransition(
-                  position: Tween<Offset>(
-                    begin: const Offset(.04, 0),
-                    end: Offset.zero,
-                  ).animate(animation),
-                  child: child,
-                ),
+    return PopScope(
+      canPop: _allowPop,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _requestFinish();
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text('训练中 · ${_formatElapsed(_elapsedSeconds)}'),
+          actions: [
+            TextButton(onPressed: _requestFinish, child: const Text('结束')),
+          ],
+        ),
+        body: SafeArea(
+          top: false,
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(22, 12, 22, 18),
+            children: [
+              LinearProgressIndicator(
+                value:
+                    (_exerciseIndex + (_setIndex / _exercise.sets)) /
+                    _exercises.length,
+                minHeight: 3,
+                backgroundColor: AppColors.line,
+                color: AppColors.lime,
               ),
-              child: Container(
-                key: ValueKey(_exercise.slug),
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: AppColors.panel,
-                  borderRadius: BorderRadius.circular(22),
-                  border: Border.all(color: AppColors.line),
+              const SizedBox(height: 22),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    '动作 ${_exerciseIndex + 1} / ${_exercises.length}',
+                    style: const TextStyle(color: AppColors.muted),
+                  ),
+                  TextButton(
+                    onPressed: _showExerciseList,
+                    child: const Text('全部动作 ≡'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              AnimatedSwitcher(
+                duration: const Duration(milliseconds: 240),
+                switchInCurve: Curves.easeOutCubic,
+                switchOutCurve: Curves.easeInCubic,
+                transitionBuilder: (child, animation) => FadeTransition(
+                  opacity: animation,
+                  child: SlideTransition(
+                    position: Tween<Offset>(
+                      begin: const Offset(.04, 0),
+                      end: Offset.zero,
+                    ).animate(animation),
+                    child: child,
+                  ),
                 ),
-                child: Row(
-                  children: [
-                    Hero(
-                      tag: 'workout-${_exercise.slug}',
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(16),
-                        child: ColoredBox(
-                          color: const Color(0xFFE7E8E3),
-                          child: Image.asset(
-                            exerciseImageAsset(_exercise.slug),
-                            width: 92,
-                            height: 92,
-                            fit: BoxFit.cover,
+                child: Container(
+                  key: ValueKey(_exercise.slug),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: AppColors.panel,
+                    borderRadius: BorderRadius.circular(22),
+                    border: Border.all(color: AppColors.line),
+                  ),
+                  child: Row(
+                    children: [
+                      Hero(
+                        tag: 'workout-${_exercise.slug}',
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(16),
+                          child: ColoredBox(
+                            color: const Color(0xFFE7E8E3),
+                            child: Image.asset(
+                              exerciseImageAsset(_exercise.slug),
+                              width: 92,
+                              height: 92,
+                              fit: BoxFit.cover,
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            _exercise.name,
-                            style: Theme.of(context).textTheme.titleLarge,
-                          ),
-                          const SizedBox(height: 7),
-                          Text(
-                            _exercise.cue,
-                            maxLines: 3,
-                            overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context).textTheme.bodyMedium,
-                          ),
-                        ],
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _exercise.name,
+                              style: Theme.of(context).textTheme.titleLarge,
+                            ),
+                            const SizedBox(height: 7),
+                            Text(
+                              _exercise.cue,
+                              maxLines: 3,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.bodyMedium,
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 22),
+              Wrap(
+                spacing: 8,
+                children: List.generate(_exercise.sets, (index) {
+                  final number = index + 1;
+                  final done = number < _setIndex;
+                  return CircleAvatar(
+                    backgroundColor: number == _setIndex
+                        ? AppColors.lime
+                        : done
+                        ? const Color(0xFF25321C)
+                        : AppColors.panelSoft,
+                    foregroundColor: number == _setIndex
+                        ? const Color(0xFF11130D)
+                        : done
+                        ? AppColors.lime
+                        : AppColors.muted,
+                    child: Text(done ? '✓' : '$number'),
+                  );
+                }),
+              ),
+              const SizedBox(height: 18),
+              Text(
+                '第 $_setIndex 组，共 ${_exercise.sets} 组',
+                style: const TextStyle(color: AppColors.muted),
+              ),
+              const SizedBox(height: 14),
+              _RestControl(
+                seconds: _restSeconds,
+                onMinus: () => setState(
+                  () => _restSeconds = (_restSeconds - 15).clamp(15, 300),
+                ),
+                onPlus: () => setState(
+                  () => _restSeconds = (_restSeconds + 15).clamp(15, 300),
+                ),
+              ),
+              const SizedBox(height: 10),
+              _Control(
+                label: '重量',
+                value: _load.toStringAsFixed(0),
+                unit: 'kg',
+                onMinus: () =>
+                    setState(() => _load = (_load - 5).clamp(0, 500)),
+                onPlus: () => setState(() => _load += 5),
+              ),
+              const SizedBox(height: 10),
+              _Control(
+                label: '次数',
+                value: '$_reps',
+                unit: '次',
+                onMinus: () =>
+                    setState(() => _reps = (_reps - 1).clamp(0, 100)),
+                onPlus: () => setState(() => _reps++),
+              ),
+              const SizedBox(height: 16),
+              FilledButton(
+                onPressed: _completeSet,
+                child: const Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.check_circle_rounded, size: 20),
+                    SizedBox(width: 8),
+                    Text('完成本组'),
                   ],
                 ),
               ),
-            ),
-            const SizedBox(height: 22),
-            Wrap(
-              spacing: 8,
-              children: List.generate(_exercise.sets, (index) {
-                final number = index + 1;
-                final done = number < _setIndex;
-                return CircleAvatar(
-                  backgroundColor: number == _setIndex
-                      ? AppColors.lime
-                      : done
-                      ? const Color(0xFF25321C)
-                      : AppColors.panelSoft,
-                  foregroundColor: number == _setIndex
-                      ? const Color(0xFF11130D)
-                      : done
-                      ? AppColors.lime
-                      : AppColors.muted,
-                  child: Text(done ? '✓' : '$number'),
-                );
-              }),
-            ),
-            const SizedBox(height: 18),
-            Text(
-              '第 $_setIndex 组，共 ${_exercise.sets} 组',
-              style: const TextStyle(color: AppColors.muted),
-            ),
-            const SizedBox(height: 14),
-            _RestControl(
-              seconds: _restSeconds,
-              onMinus: () => setState(
-                () => _restSeconds = (_restSeconds - 15).clamp(15, 300),
+              const SizedBox(height: 10),
+              OutlinedButton.icon(
+                onPressed: _showExerciseActions,
+                icon: const Icon(Icons.tune_rounded, size: 19),
+                label: const Text('调整本动作'),
               ),
-              onPlus: () => setState(
-                () => _restSeconds = (_restSeconds + 15).clamp(15, 300),
-              ),
-            ),
-            const SizedBox(height: 10),
-            _Control(
-              label: '重量',
-              value: _load.toStringAsFixed(0),
-              unit: 'kg',
-              onMinus: () => setState(() => _load = (_load - 5).clamp(0, 500)),
-              onPlus: () => setState(() => _load += 5),
-            ),
-            const SizedBox(height: 10),
-            _Control(
-              label: '次数',
-              value: '$_reps',
-              unit: '次',
-              onMinus: () => setState(() => _reps = (_reps - 1).clamp(0, 100)),
-              onPlus: () => setState(() => _reps++),
-            ),
-            const SizedBox(height: 16),
-            FilledButton(
-              onPressed: _completeSet,
-              child: const Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.check_circle_rounded, size: 20),
-                  SizedBox(width: 8),
-                  Text('完成本组'),
-                ],
-              ),
-            ),
-            const SizedBox(height: 10),
-            OutlinedButton.icon(
-              onPressed: _showExerciseActions,
-              icon: const Icon(Icons.tune_rounded, size: 19),
-              label: const Text('调整本动作'),
-            ),
-            const SizedBox(height: 76),
-          ],
+              const SizedBox(height: 76),
+            ],
+          ),
         ),
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _showCoach,
-        backgroundColor: AppColors.lime,
-        foregroundColor: const Color(0xFF11130D),
-        child: const Icon(Icons.graphic_eq_rounded),
+        floatingActionButton: FloatingActionButton(
+          onPressed: _showCoach,
+          backgroundColor: AppColors.lime,
+          foregroundColor: const Color(0xFF11130D),
+          child: const Icon(Icons.graphic_eq_rounded),
+        ),
       ),
     );
   }
@@ -474,6 +509,12 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
       ),
     );
   }
+}
+
+String _formatElapsed(int seconds) {
+  final minutes = seconds ~/ 60;
+  final remaining = seconds % 60;
+  return '${minutes.toString().padLeft(2, '0')}:${remaining.toString().padLeft(2, '0')}';
 }
 
 class _RestControl extends StatelessWidget {

@@ -175,17 +175,21 @@ write_report() {
     print -r -- ''
     print -r -- '## 真实设备截图'
     print -r -- ''
-    print -r -- '| Onboarding | 首页 | 计划 |'
+    print -r -- '| 一键登录 | Onboarding | 首页 |'
     print -r -- '| --- | --- | --- |'
-    print -r -- '| ![](01_welcome.png) | ![](10_home.png) | ![](11_plan.png) |'
+    print -r -- '| ![](00_login.png) | ![](01_welcome.png) | ![](10_home.png) |'
+    print -r -- ''
+    print -r -- '| 计划 | 训练 | 总结 |'
+    print -r -- '| --- | --- | --- |'
+    print -r -- '| ![](11_plan.png) | ![](12_workout.png) | ![](13_summary.png) |'
     print -r -- ''
     print -r -- '| 动作库 | 器械筛选 | 动作详情 |'
     print -r -- '| --- | --- | --- |'
     print -r -- '| ![](10_library.png) | ![](10_library_dumbbell.png) | ![](10_exercise_detail.png) |'
     print -r -- ''
-    print -r -- '| 训练 | 零组保护 | 总结 |'
+    print -r -- '| 零组保护 | 完成后首页 | 完成记录即时打开 |'
     print -r -- '| --- | --- | --- |'
-    print -r -- '| ![](12_workout.png) | ![](12_zero_set_guard.png) | ![](13_summary.png) |'
+    print -r -- '| ![](12_zero_set_guard.png) | ![](14_home_completed.png) | ![](14_completed_record.png) |'
     print -r -- ''
     print -r -- '| 休息倒计时 | 倒计时结束 |'
     print -r -- '| --- | --- |'
@@ -236,22 +240,30 @@ curl -sf "http://127.0.0.1:$PORT/healthz" >/dev/null
 APK="$MOBILE/build/app/outputs/flutter-apk/app-debug.apk"
 "$ADB" install -r "$APK" >/dev/null
 "$ADB" shell pm clear ai.suilian.suilian_ai >/dev/null
+"$ADB" shell pm grant ai.suilian.suilian_ai android.permission.ACCESS_COARSE_LOCATION >/dev/null
+"$ADB" shell pm grant ai.suilian.suilian_ai android.permission.ACCESS_FINE_LOCATION >/dev/null
+"$ADB" emu geo fix 121.437 31.188 >/dev/null 2>&1 || true
 start_recording
 "$ADB" shell am start -W -n ai.suilian.suilian_ai/.MainActivity >/dev/null
 
+assert_desc login '本机一键登录'
+capture 00_login
+tap_desc '本机一键登录'
 assert_desc welcome '开始设置'
 capture 01_welcome
 tap_desc '开始设置'
 assert_desc gender '继续'
 capture 02_gender
 
-for screen in 03_birthday 04_height 05_weight 06_experience 07_limitations 08_optional_voice; do
+for screen in 03_birthday 04_height 05_weight 06_experience 07_limitations 08_optional_note; do
   tap_desc '继续'
   capture "$screen"
 done
-assert_desc optional_voice '跳过，开始训练'
-tap_desc '跳过，开始训练'
+assert_desc optional_note '保存并开始训练'
+tap_desc '保存并开始训练'
 assert_desc home '今天怎么练？'
+assert_desc home_environment '环境信息已更新' 30
+assert_desc home_humidity '湿度'
 capture 10_home
 
 tap_desc '动作库'
@@ -269,15 +281,15 @@ assert_desc exercise_library_return '找到 3 个动作'
 "$ADB" shell input keyevent 4
 assert_desc home_after_library '今天怎么练？'
 
-tap_desc '按住说今天怎么练'
+tap_desc '快速生成今天计划'
 assert_desc plan '今日计划'
 capture 11_plan
-assert_desc plan_duration '68&#10;预计分钟'
-assert_desc plan_strength_sets '11&#10;力量组'
-assert_desc plan_cardio '15&#10;有氧分钟'
+assert_desc plan_duration '预计分钟'
+assert_desc plan_strength_sets '力量组'
+assert_desc plan_cardio '有氧分钟'
 assert_desc plan_actions '开始训练'
 tap_desc '开始训练'
-assert_desc workout '动作 1 / 5'
+assert_desc workout '动作 1 /'
 capture 12_workout
 
 for _ in {1..5}; do
@@ -290,7 +302,7 @@ assert_desc zero_set_guard '还没有完成任何一组'
 capture 12_zero_set_guard
 tap_desc '继续训练'
 
-tap_desc '✓ 完成本组'
+tap_desc '完成本组'
 assert_desc rest '跳过休息'
 capture 12_rest
 assert_desc rest_counting '倒计时结束后会响铃提醒'
@@ -300,13 +312,19 @@ assert_desc rest_sound '提示音已响，可以开始下一组'
 capture 12_rest_complete
 tap_desc '继续训练'
 tap_desc '结束'
-assert_desc summary '一次有效的恢复训练。'
+assert_desc summary '今天完成了'
 capture 13_summary
 assert_desc summary_truth '本次实际完成 1 个有效组。'
-assert_desc summary_muscles '腿部&#10;28%'
+assert_desc summary_muscles '肌群覆盖'
 tap_desc '完成，回到首页'
 assert_desc completed_home '今天练得不错。'
+assert_desc restart_training '重新开练'
 capture 14_home_completed
+tap_desc '今日训练已完成'
+assert_desc completed_record_instant '训练记录'
+capture 14_completed_record
+tap_desc '训练记录'
+assert_desc completed_home_return '今天练得不错。'
 
 "$ADB" shell am force-stop ai.suilian.suilian_ai
 "$ADB" shell am start -W -n ai.suilian.suilian_ai/.MainActivity >/dev/null
